@@ -16,6 +16,11 @@ const navItems = [
   ['navFaq', '/faq'],
 ];
 
+const fixedNavLabels = {
+  navEvents: 'Events',
+  navFaq: 'FAQ',
+};
+
 export function Header() {
   const [open, setOpen] = useState(false);
   const { t } = useLanguage();
@@ -32,11 +37,15 @@ export function Header() {
         </button>
 
         <nav className={open ? 'nav is-open' : 'nav'} aria-label="Primary navigation">
-          {navItems.map(([label, to]) => (
-            <NavLink className={`nav-link nav-link-${label}`} key={to} to={to} onClick={() => setOpen(false)}>
-              {t(label)}
-            </NavLink>
-          ))}
+          {navItems.map(([label, to]) => {
+            const fixedLabel = fixedNavLabels[label];
+
+            return (
+              <NavLink className={`nav-link nav-link-${label}`} key={to} to={to} onClick={() => setOpen(false)}>
+                <span translate={fixedLabel ? 'no' : undefined}>{fixedLabel || t(label)}</span>
+              </NavLink>
+            );
+          })}
         </nav>
       </div>
     </header>
