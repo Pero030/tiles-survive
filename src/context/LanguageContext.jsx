@@ -2,13 +2,19 @@ import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { translations } from '../data/translations.js';
 
 const LanguageContext = createContext(null);
-const STORAGE_KEY = 'tiles-survive-guide-language';
+
+function getBrowserLanguage() {
+  if (typeof navigator === 'undefined') {
+    return 'en';
+  }
+
+  return navigator.language?.toLowerCase().startsWith('de') ? 'de' : 'en';
+}
 
 export function LanguageProvider({ children }) {
-  const [language, setLanguage] = useState(() => localStorage.getItem(STORAGE_KEY) || 'en');
+  const [language] = useState(getBrowserLanguage);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, language);
     document.documentElement.lang = language;
   }, [language]);
 
@@ -17,7 +23,6 @@ export function LanguageProvider({ children }) {
 
     return {
       language,
-      setLanguage,
       t,
     };
   }, [language]);
