@@ -5,9 +5,11 @@ import { App } from './App.jsx';
 import { LanguageProvider } from './context/LanguageContext.jsx';
 import './styles/global.css';
 
+const routerBaseName = import.meta.env.BASE_URL === './' ? undefined : import.meta.env.BASE_URL.replace(/\/$/, '');
+
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <BrowserRouter basename={routerBaseName}>
       <LanguageProvider>
         <Suspense fallback={<main className="loading">Loading guide...</main>}>
           <App />
