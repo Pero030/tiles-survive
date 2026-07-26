@@ -18,7 +18,7 @@ const navItems = [
 
 export function Header() {
   const [open, setOpen] = useState(false);
-  const { language, setLanguage, t } = useLanguage();
+  const { t } = useLanguage();
 
   return (
     <header className="site-header">
@@ -37,13 +37,6 @@ export function Header() {
               {t(label)}
             </NavLink>
           ))}
-          <label className="language-switch">
-            <span>{t('language')}</span>
-            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-              <option value="en">English</option>
-              <option value="de">Deutsch</option>
-            </select>
-          </label>
         </nav>
       </div>
     </header>
