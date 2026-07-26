@@ -6,6 +6,7 @@ import { useLanguage } from '../context/LanguageContext.jsx';
 import { heroClassBySlug, heroClasses, heroImagesBySlug, metaFormations } from '../data/content.js';
 import { contentRepository } from '../features/admin/contentRepository.js';
 import { useLocalizedContent } from '../hooks/useLocalizedContent.js';
+import { assetPath } from '../utils/assetPath.js';
 
 const headings = {
   event: 'navEvents',
@@ -55,7 +56,7 @@ function HeroRosterCard({ entry, isMeta }) {
     <article className={`hero-roster-card ${isMeta ? 'is-meta' : ''}`}>
       <Link className="hero-roster-image" to={entry.route} aria-label={`${localize(entry.title)} ${t('details')}`}>
         {heroImage?.src ? (
-          <img src={heroImage.src} alt={localize(heroImage.alt) || localize(entry.title)} loading="lazy" />
+                      <img src={assetPath(heroImage.src)} alt={localize(heroImage.alt) || localize(entry.title)} loading="lazy" />
         ) : (
           <span aria-hidden="true">{localize(entry.title)?.slice(0, 1)}</span>
         )}
@@ -558,7 +559,7 @@ function WorldMapFeature({ entry }) {
       };
       overlayImage.src = URL.createObjectURL(new Blob([overlaySource], { type: 'image/svg+xml;charset=utf-8' }));
     };
-    image.src = entry.image.src;
+    image.src = assetPath(entry.image.src);
   };
 
   return (
@@ -575,7 +576,7 @@ function WorldMapFeature({ entry }) {
         onPointerUp={finishDrawing}
         onPointerLeave={finishDrawing}
       >
-        <img src={entry.image.src} alt={localize(entry.image.alt) || localize(entry.title)} loading="eager" draggable="false" />
+        <img src={assetPath(entry.image.src)} alt={localize(entry.image.alt) || localize(entry.title)} loading="eager" draggable="false" />
         <svg className="world-map-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
           {[...strokes, activeStroke].filter(Boolean).map((stroke, index) => (
             <polyline key={`stroke-${index}`} points={pathFromPoints(stroke.points)} fill="none" stroke={stroke.color} opacity={(stroke.opacity ?? 100) / 100} strokeWidth={stroke.size / 5} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
@@ -775,7 +776,7 @@ function CollectionPage({ type }) {
                 <a className="formation-slot" href={`/heroes/${slot.slug}`} key={slot.slug}>
                   <span>
                     {heroImagesBySlug[slot.slug]?.src ? (
-                      <img src={heroImagesBySlug[slot.slug].src} alt={slot.hero} loading="lazy" />
+                      <img src={assetPath(heroImagesBySlug[slot.slug].src)} alt={slot.hero} loading="lazy" />
                     ) : (
                       slot.hero.slice(0, 1)
                     )}
@@ -791,7 +792,7 @@ function CollectionPage({ type }) {
                 <a className="formation-slot" href={`/heroes/${slot.slug}`} key={slot.slug}>
                   <span>
                     {heroImagesBySlug[slot.slug]?.src ? (
-                      <img src={heroImagesBySlug[slot.slug].src} alt={slot.hero} loading="lazy" />
+                      <img src={assetPath(heroImagesBySlug[slot.slug].src)} alt={slot.hero} loading="lazy" />
                     ) : (
                       slot.hero.slice(0, 1)
                     )}
