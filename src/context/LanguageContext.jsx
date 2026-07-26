@@ -3,16 +3,8 @@ import { translations } from '../data/translations.js';
 
 const LanguageContext = createContext(null);
 
-function getBrowserLanguage() {
-  if (typeof navigator === 'undefined') {
-    return 'en';
-  }
-
-  return navigator.language?.toLowerCase().startsWith('de') ? 'de' : 'en';
-}
-
 export function LanguageProvider({ children }) {
-  const [language] = useState(getBrowserLanguage);
+  const [language] = useState('en');
 
   useEffect(() => {
     document.documentElement.lang = language;
