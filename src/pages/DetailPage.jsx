@@ -22,6 +22,7 @@ import { useLanguage } from '../context/LanguageContext.jsx';
 import { heroClassBySlug, heroImagesBySlug, metaFormations } from '../data/content.js';
 import { contentRepository } from '../features/admin/contentRepository.js';
 import { useLocalizedContent } from '../hooks/useLocalizedContent.js';
+import { assetPath } from '../utils/assetPath.js';
 
 const eventSections = [
   { key: 'beginnerBasics', icon: HelpCircle, tone: 'blue', wide: true },
@@ -250,7 +251,7 @@ function SourcesPanel({ entry, t, localize }) {
                           type="button"
                           onClick={() => setSelectedScreenshot(screenshot)}
                         >
-                          <img src={screenshot.src} alt={localize(screenshot.title)} loading="lazy" />
+                          <img src={assetPath(screenshot.src)} alt={localize(screenshot.title)} loading="lazy" />
                         </button>
                         <figcaption>{localize(screenshot.title)}</figcaption>
                       </figure>
@@ -273,7 +274,7 @@ function SourcesPanel({ entry, t, localize }) {
               <X size={22} aria-hidden="true" />
             </button>
             <div className="screenshot-lightbox-image">
-              <img src={selectedScreenshot.src} alt={localize(selectedScreenshot.title)} />
+              <img src={assetPath(selectedScreenshot.src)} alt={localize(selectedScreenshot.title)} />
             </div>
             <figcaption className="screenshot-lightbox-info">
               <span>{t('screenshotShows')}</span>
@@ -476,7 +477,7 @@ function HeroDetail({ entry, heroClass, heroImage, t, localize }) {
         <div className="hero-detail-media">
           <div className="hero-detail-portrait hero-detail-portrait-large">
             {heroImage?.src ? (
-              <img src={heroImage.src} alt={localize(heroImage.alt) || localize(entry.title)} loading="lazy" />
+              <img src={assetPath(heroImage.src)} alt={localize(heroImage.alt) || localize(entry.title)} loading="lazy" />
             ) : (
               <span aria-hidden="true">{localize(entry.title)?.slice(0, 1)}</span>
             )}
@@ -614,7 +615,7 @@ function VillageDetail({ entry, t, localize }) {
       {entry.image?.src && !territoryLevels.length && (
         <section className="village-single-preview-panel">
           <div className="village-single-preview-image">
-            <img src={entry.image.src} alt={localize(entry.image.alt) || localize(entry.title)} loading="lazy" />
+            <img src={assetPath(entry.image.src)} alt={localize(entry.image.alt) || localize(entry.title)} loading="lazy" />
           </div>
           <div className="village-single-preview-copy">
             <span>{t('territoryGuide')}</span>
@@ -635,7 +636,7 @@ function VillageDetail({ entry, t, localize }) {
           <div className="village-level-grid">
             {territoryLevels.map((territory) => (
               <article className="village-level-card" key={territory.level}>
-                <img src={territory.image} alt={localize(territory.name)} loading="lazy" />
+                <img src={assetPath(territory.image)} alt={localize(territory.name)} loading="lazy" />
                 <div>
                   <span>{territory.level}</span>
                   <h3>{localize(territory.name)}</h3>
@@ -742,7 +743,7 @@ function AllianceDetail({ entry, t, localize }) {
       {entry.image?.src && (
         <section className="village-single-preview-panel alliance-preview-panel">
           <div className="village-single-preview-image">
-            <img src={entry.image.src} alt={localize(entry.image.alt) || localize(entry.title)} loading="lazy" />
+            <img src={assetPath(entry.image.src)} alt={localize(entry.image.alt) || localize(entry.title)} loading="lazy" />
           </div>
           <div className="village-single-preview-copy">
             <span>{t('allianceGuide')}</span>

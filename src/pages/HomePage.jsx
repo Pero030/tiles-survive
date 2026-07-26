@@ -1,4 +1,5 @@
 import { CalendarDays, CircleHelp, Hammer, Handshake, Landmark, Map, Shield, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import heroImage from '../assets/images/hero-guide.png';
 import { GuideCard } from '../components/ui/GuideCard.jsx';
 import { SearchBar } from '../components/ui/SearchBar.jsx';
@@ -51,10 +52,10 @@ function HomePage() {
             {guideSections.map((section) => {
               const Icon = icons[section.icon];
               return (
-                <a className="category-tile" href={section.route} key={section.id}>
+                <Link className="category-tile" to={section.route} key={section.id}>
                   <Icon size={24} aria-hidden="true" />
                   <span>{t(sectionTitle(section.id))}</span>
-                </a>
+                </Link>
               );
             })}
           </div>
