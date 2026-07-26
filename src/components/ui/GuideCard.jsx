@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useLanguage } from '../../context/LanguageContext.jsx';
 import { heroClassBySlug, heroImagesBySlug } from '../../data/content.js';
 import { useLocalizedContent } from '../../hooks/useLocalizedContent.js';
+import { assetPath } from '../../utils/assetPath.js';
 
 export function GuideCard({ entry }) {
   const { t } = useLanguage();
@@ -17,7 +18,7 @@ export function GuideCard({ entry }) {
       {cardImage?.src && (
         <div className={entry.type === 'hero' ? 'hero-card-portrait' : 'guide-card-media'}>
           {cardImage.src ? (
-            <img src={cardImage.src} alt={localize(cardImage.alt) || localize(entry.title)} loading="lazy" />
+            <img src={assetPath(cardImage.src)} alt={localize(cardImage.alt) || localize(entry.title)} loading="lazy" />
           ) : (
             <span aria-hidden="true">{localize(entry.title)?.slice(0, 1)}</span>
           )}
