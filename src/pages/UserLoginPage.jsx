@@ -1,6 +1,7 @@
 import { Apple, BadgeCheck, KeyRound, Mail, ShieldCheck, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { authService } from '../features/auth/authService.js';
+import { normalizeAdminEmail, subscribeToAdminAccess } from '../services/adminAccess.js';
 
 const providerErrorHelp = 'Check that this sign-in provider is enabled in Firebase Authentication.';
 
@@ -42,6 +43,7 @@ export default function UserLoginPage() {
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState('error');
   const [busy, setBusy] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
@@ -52,6 +54,7 @@ export default function UserLoginPage() {
 
   useEffect(() => {
     if (!user) {
+      setIsAdmin(false);
       return;
     }
 
@@ -71,6 +74,21 @@ export default function UserLoginPage() {
       isMounted = false;
     };
   }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.email) {
+      setIsAdmin(false);
+      return undefined;
+    }
+
+    return subscribeToAdminAccess(
+      (data) => {
+        const userEmail = normalizeAdminEmail(user.email);
+        setIsAdmin(data.active !== false && data.emails.includes(userEmail));
+      },
+      () => setIsAdmin(false),
+    );
+  }, [user?.email]);
 
   useEffect(() => {
     authService.completeRedirectLogin().catch((error) => {
@@ -165,7 +183,10 @@ export default function UserLoginPage() {
                 {isVerified ? <BadgeCheck size={17} /> : <Mail size={17} />}
                 {isVerified ? 'Verified account' : 'Email not verified'}
               </span>
-              <h1 translate="no">{userLabel}</h1>
+              <div className="profile-name-row" translate="no">
+                <h1>{userLabel}</h1>
+                {isAdmin ? <span className="profile-admin-badge">Admin</span> : null}
+              </div>
               <p translate="no">{user.email || 'Social account'}</p>
             </div>
           </section>
