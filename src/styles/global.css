@@ -4135,21 +4135,6 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   width: 1.45rem;
 }
 
-.phone-login-box {
-  background: #f7fcff;
-  border: 2px solid rgba(63, 155, 232, 0.16);
-  border-radius: 0.95rem;
-  display: grid;
-  gap: 0.9rem;
-  padding: 1rem;
-}
-
-.phone-login-heading {
-  align-items: center;
-  color: #103a52;
-  display: flex;
-  gap: 0.45rem;
-}
 
 .user-auth-status {
   color: #b33824;
@@ -4197,6 +4182,102 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
 
 @media (max-width: 520px) {
   .social-login-grid-wide {
+    grid-template-columns: 1fr;
+  }
+}
+
+.provider-login-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.provider-login-button {
+  align-items: center;
+  border-radius: 0.35rem;
+  cursor: pointer;
+  display: inline-flex;
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  gap: 0.75rem;
+  justify-content: center;
+  min-height: 2.9rem;
+  padding: 0.7rem 1rem;
+  transition: box-shadow 140ms ease, transform 140ms ease, border-color 140ms ease;
+  width: 100%;
+}
+
+.provider-login-button:hover {
+  transform: translateY(-1px);
+}
+
+.provider-login-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+  transform: none;
+}
+
+.google-login-button {
+  background: #ffffff;
+  border: 1px solid #dadce0;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.12);
+  color: #3c4043;
+}
+
+.google-login-button:hover {
+  border-color: #c8ccd0;
+  box-shadow: 0 2px 4px rgba(60, 64, 67, 0.18);
+}
+
+.google-provider-mark {
+  flex: 0 0 auto;
+  height: 1.2rem;
+  width: 1.2rem;
+}
+
+.apple-login-button {
+  background: #000000;
+  border: 1px solid #000000;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  color: #ffffff;
+}
+
+.apple-login-button:hover {
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.28);
+}
+
+.verification-box {
+  background: #fff8e6;
+  border: 2px solid rgba(255, 185, 52, 0.5);
+  border-radius: 0.95rem;
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+}
+
+.verification-box > strong {
+  color: #7a4a0b;
+  font-weight: 950;
+}
+
+.verification-box p {
+  color: #5f785f;
+  font-size: 0.95rem;
+  margin: 0;
+}
+
+.verification-box > div {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.user-auth-status.is-positive {
+  color: #1f7b48;
+}
+
+@media (max-width: 620px) {
+  .verification-box > div {
     grid-template-columns: 1fr;
   }
 }
