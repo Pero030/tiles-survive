@@ -14,12 +14,15 @@ import {
   updatePassword,
   updateProfile,
 } from 'firebase/auth';
-import { auth } from '../../services/firebase.js';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
 import { markCurrentWebsiteUserOffline, saveWebsiteUserPresence } from '../../services/websiteUsers.js';
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
 const accountMissingError = () => new Error('Account does not exist. Please use Register first.');
+
+const normalizeGameServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
 
 const syncUser = async (credential) => {
   if (credential?.user) {
@@ -30,6 +33,10 @@ const syncUser = async (credential) => {
 };
 
 const syncSocialUser = async (credential, { allowNewUser = false } = {}) => {
+  if (!credential) {
+    return null;
+  }
+
   const info = getAdditionalUserInfo(credential);
 
   if (info?.isNewUser && !allowNewUser) {
@@ -118,6 +125,29 @@ export const authService = {
     await updateProfile(auth.currentUser, { displayName: String(displayName || '').trim() });
     await saveWebsiteUserPresence(auth.currentUser, true);
     return auth.currentUser;
+  },
+
+  async getCurrentUserProfile() {
+    if (!auth.currentUser?.uid || !isFirebaseConfigured()) {
+      return {};
+    }
+
+    const snapshot = await getDoc(doc(db, 'users', auth.currentUser.uid));
+    return snapshot.exists() ? snapshot.data() : {};
+  },
+
+  async updateGameServer(gameServer) {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
+    }
+
+    const normalizedServer = normalizeGameServer(gameServer);
+    await setDoc(doc(db, 'users', auth.currentUser.uid), {
+      gameServer: normalizedServer,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await saveWebsiteUserPresence(auth.currentUser, true);
+    return normalizedServer;
   },
 
   async updateUserPassword(password) {
