@@ -122,6 +122,7 @@ function WebsiteUsersPanel({ currentEmail }) {
               <div className="website-user-meta">
                 <span className={activeNow ? 'user-status-online' : 'user-status-offline'}>{activeNow ? 'Online' : 'Offline'}</span>
                 <span>Last seen: {formatUserDate(user.lastSeenAt)}</span>
+                <span>Server: {user.gameServer ? `#${user.gameServer}` : 'Not set'}</span>
                 <span>{isAdmin ? 'Admin' : 'User'}</span>
               </div>
               <button type="button" onClick={() => handleMakeAdmin(email)} disabled={!email || isAdmin || busyEmail === email || email === currentEmail}>
