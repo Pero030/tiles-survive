@@ -39,6 +39,8 @@ export default function UserLoginPage() {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [gameServer, setGameServer] = useState('');
+  const [allianceName, setAllianceName] = useState('');
+  const [allianceTag, setAllianceTag] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState('error');
@@ -48,7 +50,11 @@ export default function UserLoginPage() {
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
     setDisplayName(nextUser?.displayName || '');
-    if (!nextUser) setGameServer('');
+    if (!nextUser) {
+      setGameServer('');
+      setAllianceName('');
+      setAllianceTag('');
+    }
     if (nextUser) setStatus('');
   }), []);
 
@@ -63,6 +69,8 @@ export default function UserLoginPage() {
       .then((profile) => {
         if (isMounted) {
           setGameServer(profile?.gameServer || '');
+          setAllianceName(profile?.allianceName || '');
+          setAllianceTag(profile?.allianceTag || '');
         }
       })
       .catch((error) => {
@@ -138,13 +146,20 @@ export default function UserLoginPage() {
     await runAction('profile', async () => {
       const nextUser = await authService.updateDisplayName(displayName);
       const nextGameServer = await authService.updateGameServer(gameServer);
+      const nextAllianceInfo = await authService.updateAllianceInfo({ allianceName, allianceTag });
       setGameServer(nextGameServer);
+      setAllianceName(nextAllianceInfo.allianceName);
+      setAllianceTag(nextAllianceInfo.allianceTag);
       setUser({ ...nextUser });
     }, 'Profile saved.');
   };
 
   const handleGameServerChange = (event) => {
     setGameServer(event.target.value.replace(/\D/g, '').slice(0, 6));
+  };
+
+  const handleAllianceTagChange = (event) => {
+    setAllianceTag(event.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8));
   };
 
   const handlePasswordChange = async (event) => {
@@ -211,7 +226,7 @@ export default function UserLoginPage() {
                   <span><UserRound size={21} /></span>
                   <div>
                     <h2>Profile Settings</h2>
-                    <p>Choose your public name and Tiles Survive server.</p>
+                    <p>Choose your public name, server, and alliance.</p>
                   </div>
                 </div>
                 <label htmlFor="profile-display-name">Display name</label>
@@ -220,6 +235,14 @@ export default function UserLoginPage() {
                 <div className="profile-server-input">
                   <span translate="no">#</span>
                   <input id="profile-game-server" inputMode="numeric" pattern="[0-9]*" value={gameServer} onChange={handleGameServerChange} placeholder="867" maxLength={6} />
+                </div>
+                <label htmlFor="profile-alliance-name">Alliance name</label>
+                <input id="profile-alliance-name" value={allianceName} onChange={(event) => setAllianceName(event.target.value.slice(0, 48))} placeholder="EmpireARDA" maxLength={48} />
+                <label htmlFor="profile-alliance-tag">Alliance tag</label>
+                <div className="profile-alliance-tag-input">
+                  <span translate="no">[</span>
+                  <input id="profile-alliance-tag" value={allianceTag} onChange={handleAllianceTagChange} placeholder="ADA" maxLength={8} />
+                  <span translate="no">]</span>
                 </div>
                 <button className="user-auth-primary" type="submit" disabled={busy === 'profile'}>
                   {busy === 'profile' ? 'Saving...' : 'Save profile'}
@@ -253,6 +276,8 @@ export default function UserLoginPage() {
               <strong>{user.email ? user.emailVerified ? 'Yes' : 'No' : 'No email'}</strong>
               <span>Game server</span>
               <strong>{gameServer ? `#${gameServer}` : 'Not set'}</strong>
+              <span>Alliance</span>
+              <strong>{allianceName ? `${allianceTag ? `[${allianceTag}] ` : ''}${allianceName}` : 'Not set'}</strong>
             </div>
             {status ? <strong className={statusTone === 'success' ? 'user-auth-status is-positive' : 'user-auth-status'}>{status}</strong> : null}
             <button className="user-auth-primary" type="button" onClick={handleLogout} disabled={busy === 'logout'}>
