@@ -1,0 +1,26 @@
+{
+    "name":  "tiles-survive-guide",
+    "private":  true,
+    "version":  "0.1.0",
+    "type":  "module",
+    "scripts":  {
+                    "dev":  "vite --host 127.0.0.1",
+                    "build":  "vite build",
+                    "preview":  "vite preview --host 127.0.0.1",
+                    "seed:firebase-assets":  "node scripts/seed-firebase-assets.mjs",
+                    "seed:r2-assets":  "node scripts/seed-r2-assets.mjs",
+                    "seed:firebase-content":  "node scripts/seed-firebase-content.mjs",
+                    "admin:create":  "node scripts/create-admin-user.mjs"
+                },
+    "dependencies":  {
+                         "@aws-sdk/client-s3":  "^3.1112.0",
+                         "@vitejs/plugin-react":  "^5.0.0",
+                         "firebase":  "^12.17.1",
+                         "lucide-react":  "^0.468.0",
+                         "react":  "^19.0.0",
+                         "react-dom":  "^19.0.0",
+                         "react-router-dom":  "^7.0.0",
+                         "sharp":  "^0.35.3",
+                         "vite":  "^7.0.0"
+                     }
+}
