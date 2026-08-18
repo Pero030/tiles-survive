@@ -1,20 +1,26 @@
-import { Apple, Mail, Phone, ShieldCheck } from 'lucide-react';
+import { Apple, Mail, ShieldCheck } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { authService } from '../features/auth/authService.js';
 
 const providerErrorHelp = 'Check that this sign-in provider is enabled in Firebase Authentication.';
 
+const GoogleMark = () => (
+  <svg aria-hidden="true" className="google-provider-mark" viewBox="0 0 24 24">
+    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+    <path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l3.66-2.84z" />
+    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06L5.84 9.9C6.71 7.3 9.14 5.38 12 5.38z" />
+  </svg>
+);
+
 const getFriendlyError = (error) => {
   const message = error?.message || 'Login failed.';
 
   if (message.includes('auth/operation-not-allowed')) return providerErrorHelp;
-  if (message.includes('auth/unauthorized-domain')) return 'Add 127.0.0.1 and localhost to Firebase Authentication authorized domains.';
+  if (message.includes('auth/unauthorized-domain')) return 'This website domain must be added in Firebase Authentication authorized domains.';
   if (message.includes('auth/admin-restricted-operation')) return 'This provider is restricted in Firebase Authentication.';
-  if (message.includes('auth/popup-blocked')) return 'The browser blocked the popup. Use redirect login instead.';
-  if (message.includes('auth/popup-closed-by-user')) return 'The login popup was closed before sign-in finished. Try the redirect button below.';
-  if (message.includes('auth/invalid-phone-number')) return 'Enter the phone number with country code, for example +491701234567.';
-  if (message.includes('auth/code-expired')) return 'The SMS code expired. Send a new code.';
-  if (message.includes('auth/invalid-verification-code')) return 'The SMS code is not correct.';
+  if (message.includes('auth/popup-blocked')) return 'The browser blocked the popup. Try again or allow popups for this site.';
+  if (message.includes('auth/popup-closed-by-user')) return 'The login popup was closed before sign-in finished.';
   if (message.includes('auth/email-already-in-use')) return 'This email already has an account. Use Sign in instead.';
   if (message.includes('auth/weak-password')) return 'Password must have at least 6 characters.';
   if (message.includes('auth/invalid-credential')) return 'Email or password is not correct.';
@@ -27,9 +33,6 @@ export default function UserLoginPage() {
   const [user, setUser] = useState(() => authService.getCurrentUser());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [phoneCode, setPhoneCode] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState(null);
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState('');
 
@@ -44,7 +47,7 @@ export default function UserLoginPage() {
     });
   }, []);
 
-  const userLabel = useMemo(() => user?.email || user?.phoneNumber || user?.displayName || 'Signed in user', [user]);
+  const userLabel = useMemo(() => user?.email || user?.displayName || 'Signed in user', [user]);
 
   const runAction = async (actionName, action) => {
     setBusy(actionName);
@@ -59,34 +62,12 @@ export default function UserLoginPage() {
     }
   };
 
-  const handleSocialPopup = async (providerName, action) => {
-    setBusy(`${providerName}-popup`);
-    setStatus(`Opening ${providerName} popup...`);
-
-    try {
-      await action();
-    } catch (error) {
-      setStatus(getFriendlyError(error));
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const handleSocialRedirect = (providerName, action) => {
-    setBusy(`${providerName}-redirect`);
-    setStatus(`Redirecting to ${providerName}...`);
-
-    action().catch((error) => {
-      setBusy('');
-      setStatus(getFriendlyError(error));
-    });
-  };
-
   const handleEmailSubmit = async (event) => {
     event.preventDefault();
     await runAction('email', async () => {
       if (mode === 'register') {
         await authService.registerWithEmail(email, password);
+        setStatus('Verification email sent. Please check your inbox.');
       } else {
         await authService.signInWithEmail(email, password);
       }
@@ -94,23 +75,21 @@ export default function UserLoginPage() {
     });
   };
 
-  const handleSendPhoneCode = async (event) => {
-    event.preventDefault();
-    await runAction('phone-send', async () => {
-      const result = await authService.sendPhoneCode(phoneNumber, 'phone-recaptcha');
-      setConfirmationResult(result);
-      setStatus('SMS code sent.');
+
+  const handleResendVerification = async () => {
+    await runAction('verify-email', async () => {
+      await authService.sendVerificationEmail();
+      setStatus('Verification email sent again. Please check your inbox.');
     });
   };
 
-  const handleConfirmPhoneCode = async (event) => {
-    event.preventDefault();
-    await runAction('phone-confirm', async () => {
-      await authService.confirmPhoneCode(confirmationResult, phoneCode);
-      setPhoneCode('');
+  const handleRefreshVerification = async () => {
+    await runAction('refresh-user', async () => {
+      const nextUser = await authService.reloadCurrentUser();
+      setUser(nextUser);
+      setStatus(nextUser?.emailVerified ? 'Email is verified.' : 'Email is not verified yet.');
     });
   };
-
   const handleLogout = async () => {
     await runAction('logout', async () => authService.signOut());
   };
@@ -127,7 +106,24 @@ export default function UserLoginPage() {
             <strong>{user.uid}</strong>
             <span>Provider</span>
             <strong>{user.providerData?.[0]?.providerId || 'password'}</strong>
+            <span>Email verified</span>
+            <strong>{user.email ? user.emailVerified ? 'Yes' : 'No' : 'No email'}</strong>
           </div>
+          {user.email && !user.emailVerified ? (
+            <div className="verification-box">
+              <strong>Please verify your email address.</strong>
+              <p>Check your inbox and click the verification link. After confirming, refresh the status here.</p>
+              <div>
+                <button className="user-auth-secondary" type="button" onClick={handleResendVerification} disabled={Boolean(busy)}>
+                  {busy === 'verify-email' ? 'Sending...' : 'Resend verification email'}
+                </button>
+                <button className="provider-login-button google-login-button" type="button" onClick={handleRefreshVerification} disabled={Boolean(busy)}>
+                  {busy === 'refresh-user' ? 'Checking...' : 'Refresh status'}
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {status ? <strong className="user-auth-status is-positive">{status}</strong> : null}
           <button className="user-auth-primary" type="button" onClick={handleLogout} disabled={busy === 'logout'}>
             {busy === 'logout' ? 'Signing out...' : 'Sign Out'}
           </button>
@@ -160,47 +156,18 @@ export default function UserLoginPage() {
           </button>
         </form>
 
-        <div className="social-login-grid social-login-grid-wide">
-          <button type="button" onClick={() => handleSocialPopup('Google', () => authService.signInWithGoogle())} disabled={Boolean(busy)}>
-            <span className="provider-mark">G</span> Google Popup
+        <div className="provider-login-grid">
+          <button className="provider-login-button google-login-button" type="button" onClick={() => runAction('google', () => authService.signInWithGoogle())} disabled={Boolean(busy)}>
+            <GoogleMark />
+            <span>Sign in with Google</span>
           </button>
-          <button type="button" onClick={() => handleSocialPopup('Apple', () => authService.signInWithApple())} disabled={Boolean(busy)}>
-            <Apple size={19} /> Apple Popup
+          <button className="provider-login-button apple-login-button" type="button" onClick={() => runAction('apple', () => authService.signInWithApple())} disabled={Boolean(busy)}>
+            <Apple size={21} fill="currentColor" />
+            <span>Sign in with Apple</span>
           </button>
-          <button type="button" onClick={() => handleSocialRedirect('Google', () => authService.redirectWithGoogle())} disabled={Boolean(busy)}>
-            <span className="provider-mark">G</span> Google Redirect
-          </button>
-          <button type="button" onClick={() => handleSocialRedirect('Apple', () => authService.redirectWithApple())} disabled={Boolean(busy)}>
-            <Apple size={19} /> Apple Redirect
-          </button>
-        </div>
-
-        <div className="phone-login-box">
-          <div className="phone-login-heading">
-            <Phone size={19} />
-            <strong>Phone Login</strong>
-          </div>
-          <form className="user-auth-form" onSubmit={handleSendPhoneCode}>
-            <label htmlFor="user-phone">Phone number</label>
-            <input id="user-phone" autoComplete="tel" type="tel" value={phoneNumber} onChange={(event) => setPhoneNumber(event.target.value)} placeholder="+491701234567" required />
-            <button className="user-auth-secondary" type="submit" disabled={busy === 'phone-send'}>
-              {busy === 'phone-send' ? 'Sending...' : 'Send SMS Code'}
-            </button>
-          </form>
-
-          {confirmationResult ? (
-            <form className="user-auth-form" onSubmit={handleConfirmPhoneCode}>
-              <label htmlFor="user-phone-code">SMS code</label>
-              <input id="user-phone-code" inputMode="numeric" value={phoneCode} onChange={(event) => setPhoneCode(event.target.value)} placeholder="123456" required />
-              <button className="user-auth-primary" type="submit" disabled={busy === 'phone-confirm'}>
-                {busy === 'phone-confirm' ? 'Checking...' : 'Confirm Phone Login'}
-              </button>
-            </form>
-          ) : null}
         </div>
 
         {status ? <strong className="user-auth-status">{status}</strong> : null}
-        <div id="phone-recaptcha" />
       </div>
     </section>
   );
