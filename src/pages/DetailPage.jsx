@@ -22,7 +22,7 @@ import {
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { useLanguage } from '../context/LanguageContext.jsx';
-import { getHeroClassBySlug, getHeroImagesBySlug, getMetaFormations } from '../services/siteContent.js';
+import { getHeroClassBySlug, getHeroImagesBySlug, getMetaFormations, getSiteContentSnapshot, subscribeToSiteContent } from '../services/siteContent.js';
 import { contentRepository } from '../features/admin/contentRepository.js';
 import { getContentOverride, getContentOverridesSnapshot, removeContentOverride, setContentOverride, subscribeToContentOverrides } from '../features/admin/contentOverrides.js';
 import { useLocalizedContent } from '../hooks/useLocalizedContent.js';
@@ -172,6 +172,43 @@ const serializeEditableValue = (editable) => editable.kind === 'list' ? editable
 const parseEditableValue = (kind, value) => kind === 'list'
   ? value.split('\n').map((item) => item.trim()).filter(Boolean)
   : value;
+
+const editableStructuredFields = ['title', 'level', 'description', 'icon'];
+
+const getEditableStructuredValue = (value) => {
+  const englishValue = value && typeof value === 'object' && !Array.isArray(value) && 'en' in value ? value.en : value;
+
+  if (!Array.isArray(englishValue) || !englishValue.every((item) => item && typeof item === 'object' && !Array.isArray(item))) {
+    return null;
+  }
+
+  return englishValue.map((item) => {
+    const draftItem = {};
+    Object.entries(item).forEach(([key, itemValue]) => {
+      draftItem[key] = itemValue && typeof itemValue === 'object' && !Array.isArray(itemValue) && 'en' in itemValue
+        ? itemValue.en
+        : String(itemValue || '');
+    });
+    return draftItem;
+  });
+};
+
+const structuredDraftToValue = (items) => items
+  .map((item) => Object.fromEntries(
+    Object.entries(item)
+      .map(([key, value]) => [key, String(value || '').trim()])
+      .filter(([, value]) => value),
+  ))
+  .filter((item) => Object.keys(item).length > 0);
+
+const getStructuredFieldOrder = (item) => [
+  ...editableStructuredFields.filter((field) => field in item),
+  ...Object.keys(item).filter((field) => !editableStructuredFields.includes(field)),
+];
+
+const getStructuredFieldLabel = (fieldKey) => fieldKey
+  .replace(/([A-Z])/g, ' $1')
+  .replace(/^./, (letter) => letter.toUpperCase());
 
 function InlineAdminEditor({ buttonLabel = 'Edit', path, value }) {
   const editable = getEditableEnglishValue(value);
@@ -691,7 +728,7 @@ function EventDetail({ entry, entryIndex, t, localize }) {
                 {sections.map(({ key, icon: Icon, tone, ordered, wide }) => (
                   <section className={`event-info-card event-info-card-${key} ${wide ? 'wide' : ''}`} id={`event-section-${key}`} key={key}>
                     <header>
-                      <span className={`event-section-icon tone-${selectedTone}`}>
+                      <span className={`event-section-icon tone-${tone || 'blue'}`}>
                         <Icon size={18} aria-hidden="true" />
                       </span>
                       <h3>{t(key) || key}</h3>
@@ -961,7 +998,7 @@ function VillageDetail({ entry, entryIndex, t, localize }) {
             {primarySections.map(({ key, icon: Icon, tone, wide }) => (
               <section className={`village-info-card village-info-card-${key} ${wide ? 'wide' : ''}`} key={key}>
                 <header>
-                  <span className={`event-section-icon tone-${selectedTone}`}>
+                  <span className={`event-section-icon tone-${tone || 'blue'}`}>
                     <Icon size={18} aria-hidden="true" />
                   </span>
                   <h2>{t(key) || key}</h2>
@@ -988,7 +1025,7 @@ function VillageDetail({ entry, entryIndex, t, localize }) {
             {guideSections.map(({ key, icon: Icon, tone, wide }) => (
               <section className={`village-info-card village-info-card-${key} ${wide ? 'wide' : ''}`} key={key}>
                 <header>
-                  <span className={`event-section-icon tone-${selectedTone}`}>
+                  <span className={`event-section-icon tone-${tone || 'blue'}`}>
                     <Icon size={18} aria-hidden="true" />
                   </span>
                   <h2>{t(key) || key}</h2>
@@ -1076,7 +1113,7 @@ function AllianceDetail({ entry, entryIndex, t, localize }) {
             {visibleSections.map(({ key, icon: Icon, tone, wide }) => (
               <section className={`village-info-card alliance-info-card village-info-card-${key} ${wide ? 'wide' : ''}`} key={key}>
                 <header>
-                  <span className={`event-section-icon tone-${selectedTone}`}>
+                  <span className={`event-section-icon tone-${tone || 'blue'}`}>
                     <Icon size={18} aria-hidden="true" />
                   </span>
                   <h2>{t(key) || key}</h2>
@@ -1098,8 +1135,9 @@ function DetailPage({ type }) {
   const { t } = useLanguage();
   const { localize } = useLocalizedContent();
   const overridesSnapshot = useSyncExternalStore(subscribeToContentOverrides, getContentOverridesSnapshot, () => '');
-  const entry = useMemo(() => contentRepository.findEntryBySlug(type, slug), [type, slug, overridesSnapshot]);
-  const entryIndex = useMemo(() => contentRepository.findEntryIndexBySlug(type, slug), [type, slug]);
+  const siteContentSnapshot = useSyncExternalStore(subscribeToSiteContent, getSiteContentSnapshot, () => '');
+  const entry = useMemo(() => contentRepository.findEntryBySlug(type, slug), [type, slug, overridesSnapshot, siteContentSnapshot]);
+  const entryIndex = useMemo(() => contentRepository.findEntryIndexBySlug(type, slug), [type, slug, siteContentSnapshot]);
   const heroClassBySlug = getHeroClassBySlug();
   const heroImagesBySlug = getHeroImagesBySlug();
   const heroClass = entry?.type === 'hero' ? heroClassBySlug[entry.slug] : null;
