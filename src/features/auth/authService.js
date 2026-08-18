@@ -23,6 +23,8 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const accountMissingError = () => new Error('Account does not exist. Please use Register first.');
 
 const normalizeGameServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
+const normalizeAllianceName = (allianceName) => String(allianceName || '').trim().slice(0, 48);
+const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
 
 const syncUser = async (credential) => {
   if (credential?.user) {
@@ -148,6 +150,27 @@ export const authService = {
     }, { merge: true });
     await saveWebsiteUserPresence(auth.currentUser, true);
     return normalizedServer;
+  },
+
+  async updateAllianceInfo({ allianceName, allianceTag }) {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
+    }
+
+    const normalizedAllianceName = normalizeAllianceName(allianceName);
+    const normalizedAllianceTag = normalizeAllianceTag(allianceTag);
+
+    await setDoc(doc(db, 'users', auth.currentUser.uid), {
+      allianceName: normalizedAllianceName,
+      allianceTag: normalizedAllianceTag,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await saveWebsiteUserPresence(auth.currentUser, true);
+
+    return {
+      allianceName: normalizedAllianceName,
+      allianceTag: normalizedAllianceTag,
+    };
   },
 
   async updateUserPassword(password) {
