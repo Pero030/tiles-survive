@@ -11,6 +11,8 @@ import {
   signInWithPopup,
   signInWithRedirect,
   signOut,
+  updatePassword,
+  updateProfile,
 } from 'firebase/auth';
 import { auth } from '../../services/firebase.js';
 import { markCurrentWebsiteUserOffline, saveWebsiteUserPresence } from '../../services/websiteUsers.js';
@@ -107,6 +109,25 @@ export const authService = {
     return auth.currentUser;
   },
 
+
+  async updateDisplayName(displayName) {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
+    }
+
+    await updateProfile(auth.currentUser, { displayName: String(displayName || '').trim() });
+    await saveWebsiteUserPresence(auth.currentUser, true);
+    return auth.currentUser;
+  },
+
+  async updateUserPassword(password) {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
+    }
+
+    await updatePassword(auth.currentUser, password);
+    await saveWebsiteUserPresence(auth.currentUser, true);
+  },
   async completeRedirectLogin() {
     return syncSocialUser(await getRedirectResult(auth), { allowNewUser: true });
   },
