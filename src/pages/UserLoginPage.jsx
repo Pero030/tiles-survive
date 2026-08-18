@@ -1,4 +1,4 @@
-import { Apple, Mail, ShieldCheck } from 'lucide-react';
+import { Apple, BadgeCheck, KeyRound, Mail, ShieldCheck, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { authService } from '../features/auth/authService.js';
 
@@ -14,7 +14,7 @@ const GoogleMark = () => (
 );
 
 const getFriendlyError = (error) => {
-  const message = error?.message || 'Login failed.';
+  const message = error?.message || 'Action failed.';
 
   if (message.includes('auth/operation-not-allowed')) return providerErrorHelp;
   if (message.includes('auth/unauthorized-domain')) return 'This website domain must be added in Firebase Authentication authorized domains.';
@@ -23,6 +23,7 @@ const getFriendlyError = (error) => {
   if (message.includes('auth/popup-closed-by-user')) return 'The login popup was closed before sign-in finished.';
   if (message.includes('auth/email-already-in-use')) return 'This email already has an account. Use Sign in instead.';
   if (message.includes('auth/weak-password')) return 'Password must have at least 6 characters.';
+  if (message.includes('auth/requires-recent-login')) return 'For security, please sign out and sign in again before changing your password.';
   if (message.includes('Account does not exist')) return 'Account does not exist. Please use Register first.';
   if (message.includes('auth/user-not-found')) return 'Account does not exist. Please use Register first.';
   if (message.includes('auth/invalid-credential')) return 'Email or password is not correct, or this account does not exist yet.';
@@ -35,29 +36,41 @@ export default function UserLoginPage() {
   const [user, setUser] = useState(() => authService.getCurrentUser());
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [status, setStatus] = useState('');
+  const [statusTone, setStatusTone] = useState('error');
   const [busy, setBusy] = useState('');
 
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
+    setDisplayName(nextUser?.displayName || '');
     if (nextUser) setStatus('');
   }), []);
 
   useEffect(() => {
     authService.completeRedirectLogin().catch((error) => {
+      setStatusTone('error');
       setStatus(getFriendlyError(error));
     });
   }, []);
 
-  const userLabel = useMemo(() => user?.email || user?.displayName || 'Signed in user', [user]);
+  const userLabel = useMemo(() => user?.displayName || user?.email || 'Signed in user', [user]);
+  const providerId = user?.providerData?.[0]?.providerId || 'password';
+  const canChangePassword = providerId === 'password';
 
-  const runAction = async (actionName, action) => {
+  const runAction = async (actionName, action, successMessage = '') => {
     setBusy(actionName);
     setStatus('');
 
     try {
       await action();
+      if (successMessage) {
+        setStatusTone('success');
+        setStatus(successMessage);
+      }
     } catch (error) {
+      setStatusTone('error');
       setStatus(getFriendlyError(error));
     } finally {
       setBusy('');
@@ -69,6 +82,7 @@ export default function UserLoginPage() {
     await runAction('email', async () => {
       if (mode === 'register') {
         await authService.registerWithEmail(email, password);
+        setStatusTone('success');
         setStatus('Verification email sent. Please check your inbox.');
       } else {
         await authService.signInWithEmail(email, password);
@@ -77,42 +91,57 @@ export default function UserLoginPage() {
     });
   };
 
+  const handleSaveProfile = async (event) => {
+    event.preventDefault();
+    await runAction('profile', async () => {
+      const nextUser = await authService.updateDisplayName(displayName);
+      setUser({ ...nextUser });
+    }, 'Profile name saved.');
+  };
+
+  const handlePasswordChange = async (event) => {
+    event.preventDefault();
+    await runAction('password', async () => {
+      await authService.updateUserPassword(newPassword);
+      setNewPassword('');
+    }, 'Password changed.');
+  };
 
   const handleResendVerification = async () => {
-    await runAction('verify-email', async () => {
-      await authService.sendVerificationEmail();
-      setStatus('Verification email sent again. Please check your inbox.');
-    });
+    await runAction('verify-email', async () => authService.sendVerificationEmail(), 'Verification email sent again. Please check your inbox.');
   };
 
   const handleRefreshVerification = async () => {
     await runAction('refresh-user', async () => {
       const nextUser = await authService.reloadCurrentUser();
-      setUser(nextUser);
-      setStatus(nextUser?.emailVerified ? 'Email is verified.' : 'Email is not verified yet.');
-    });
+      setUser({ ...nextUser });
+    }, 'Email status refreshed.');
   };
+
   const handleLogout = async () => {
     await runAction('logout', async () => authService.signOut());
   };
 
   if (user) {
+    const isVerified = !user.email || user.emailVerified;
+
     return (
       <section className="user-auth-page">
-        <div className="user-auth-card user-profile-card">
-          <span className="user-auth-icon"><ShieldCheck size={30} /></span>
-          <h1>Account Active</h1>
-          <p translate="no">{userLabel}</p>
-          <div className="user-profile-grid" translate="no">
-            <span>UID</span>
-            <strong>{user.uid}</strong>
-            <span>Provider</span>
-            <strong>{user.providerData?.[0]?.providerId || 'password'}</strong>
-            <span>Email verified</span>
-            <strong>{user.email ? user.emailVerified ? 'Yes' : 'No' : 'No email'}</strong>
-          </div>
-          {user.email && !user.emailVerified ? (
-            <div className="verification-box">
+        <div className="user-profile-shell">
+          <section className="profile-hero-card">
+            <div className="profile-avatar" translate="no">{userLabel.slice(0, 1).toUpperCase()}</div>
+            <div className="profile-hero-copy">
+              <span className={isVerified ? 'profile-status-chip is-verified' : 'profile-status-chip is-unverified'}>
+                {isVerified ? <BadgeCheck size={17} /> : <Mail size={17} />}
+                {isVerified ? 'Verified account' : 'Email not verified'}
+              </span>
+              <h1 translate="no">{userLabel}</h1>
+              <p translate="no">{user.email || 'Social account'}</p>
+            </div>
+          </section>
+
+          {!isVerified ? (
+            <section className="profile-panel verification-box">
               <strong>Please verify your email address.</strong>
               <p>Check your inbox and click the verification link. After confirming, refresh the status here.</p>
               <div>
@@ -123,12 +152,55 @@ export default function UserLoginPage() {
                   {busy === 'refresh-user' ? 'Checking...' : 'Refresh status'}
                 </button>
               </div>
+            </section>
+          ) : (
+            <section className="profile-settings-grid">
+              <form className="profile-panel profile-settings-card" onSubmit={handleSaveProfile}>
+                <div className="profile-panel-heading">
+                  <span><UserRound size={21} /></span>
+                  <div>
+                    <h2>Profile Settings</h2>
+                    <p>Choose the public name shown for your guide account.</p>
+                  </div>
+                </div>
+                <label htmlFor="profile-display-name">Display name</label>
+                <input id="profile-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" maxLength={40} />
+                <button className="user-auth-primary" type="submit" disabled={busy === 'profile'}>
+                  {busy === 'profile' ? 'Saving...' : 'Save name'}
+                </button>
+              </form>
+
+              <form className="profile-panel profile-settings-card" onSubmit={handlePasswordChange}>
+                <div className="profile-panel-heading">
+                  <span><KeyRound size={21} /></span>
+                  <div>
+                    <h2>Password</h2>
+                    <p>{canChangePassword ? 'Change your email login password.' : 'Password changes are only available for email accounts.'}</p>
+                  </div>
+                </div>
+                <label htmlFor="profile-new-password">New password</label>
+                <input id="profile-new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Minimum 6 characters" minLength={6} disabled={!canChangePassword} />
+                <button className="user-auth-secondary" type="submit" disabled={!canChangePassword || busy === 'password'}>
+                  {busy === 'password' ? 'Changing...' : 'Change password'}
+                </button>
+              </form>
+            </section>
+          )}
+
+          <section className="profile-panel profile-details-card">
+            <div className="user-profile-grid" translate="no">
+              <span>UID</span>
+              <strong>{user.uid}</strong>
+              <span>Provider</span>
+              <strong>{providerId}</strong>
+              <span>Email verified</span>
+              <strong>{user.email ? user.emailVerified ? 'Yes' : 'No' : 'No email'}</strong>
             </div>
-          ) : null}
-          {status ? <strong className="user-auth-status is-positive">{status}</strong> : null}
-          <button className="user-auth-primary" type="button" onClick={handleLogout} disabled={busy === 'logout'}>
-            {busy === 'logout' ? 'Signing out...' : 'Sign Out'}
-          </button>
+            {status ? <strong className={statusTone === 'success' ? 'user-auth-status is-positive' : 'user-auth-status'}>{status}</strong> : null}
+            <button className="user-auth-primary" type="button" onClick={handleLogout} disabled={busy === 'logout'}>
+              {busy === 'logout' ? 'Signing out...' : 'Sign Out'}
+            </button>
+          </section>
         </div>
       </section>
     );
@@ -169,7 +241,7 @@ export default function UserLoginPage() {
           </button>
         </div>
 
-        {status ? <strong className="user-auth-status">{status}</strong> : null}
+        {status ? <strong className={statusTone === 'success' ? 'user-auth-status is-positive' : 'user-auth-status'}>{status}</strong> : null}
       </div>
     </section>
   );
