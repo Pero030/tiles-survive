@@ -37,6 +37,7 @@ export default function UserLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [gameServer, setGameServer] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState('error');
@@ -45,8 +46,31 @@ export default function UserLoginPage() {
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
     setDisplayName(nextUser?.displayName || '');
+    if (!nextUser) setGameServer('');
     if (nextUser) setStatus('');
   }), []);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let isMounted = true;
+    authService.getCurrentUserProfile()
+      .then((profile) => {
+        if (isMounted) {
+          setGameServer(profile?.gameServer || '');
+        }
+      })
+      .catch((error) => {
+        setStatusTone('error');
+        setStatus(getFriendlyError(error));
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.uid]);
 
   useEffect(() => {
     authService.completeRedirectLogin().catch((error) => {
@@ -95,8 +119,14 @@ export default function UserLoginPage() {
     event.preventDefault();
     await runAction('profile', async () => {
       const nextUser = await authService.updateDisplayName(displayName);
+      const nextGameServer = await authService.updateGameServer(gameServer);
+      setGameServer(nextGameServer);
       setUser({ ...nextUser });
-    }, 'Profile name saved.');
+    }, 'Profile saved.');
+  };
+
+  const handleGameServerChange = (event) => {
+    setGameServer(event.target.value.replace(/\D/g, '').slice(0, 6));
   };
 
   const handlePasswordChange = async (event) => {
@@ -160,13 +190,18 @@ export default function UserLoginPage() {
                   <span><UserRound size={21} /></span>
                   <div>
                     <h2>Profile Settings</h2>
-                    <p>Choose the public name shown for your guide account.</p>
+                    <p>Choose your public name and Tiles Survive server.</p>
                   </div>
                 </div>
                 <label htmlFor="profile-display-name">Display name</label>
                 <input id="profile-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" maxLength={40} />
+                <label htmlFor="profile-game-server">Game server</label>
+                <div className="profile-server-input">
+                  <span translate="no">#</span>
+                  <input id="profile-game-server" inputMode="numeric" pattern="[0-9]*" value={gameServer} onChange={handleGameServerChange} placeholder="867" maxLength={6} />
+                </div>
                 <button className="user-auth-primary" type="submit" disabled={busy === 'profile'}>
-                  {busy === 'profile' ? 'Saving...' : 'Save name'}
+                  {busy === 'profile' ? 'Saving...' : 'Save profile'}
                 </button>
               </form>
 
@@ -195,6 +230,8 @@ export default function UserLoginPage() {
               <strong>{providerId}</strong>
               <span>Email verified</span>
               <strong>{user.email ? user.emailVerified ? 'Yes' : 'No' : 'No email'}</strong>
+              <span>Game server</span>
+              <strong>{gameServer ? `#${gameServer}` : 'Not set'}</strong>
             </div>
             {status ? <strong className={statusTone === 'success' ? 'user-auth-status is-positive' : 'user-auth-status'}>{status}</strong> : null}
             <button className="user-auth-primary" type="button" onClick={handleLogout} disabled={busy === 'logout'}>
