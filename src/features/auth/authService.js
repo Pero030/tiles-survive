@@ -1,13 +1,12 @@
 import {
   GoogleAuthProvider,
   OAuthProvider,
-  RecaptchaVerifier,
   createUserWithEmailAndPassword,
   getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signInWithPhoneNumber,
   signInWithPopup,
+  sendEmailVerification,
   signInWithRedirect,
   signOut,
 } from 'firebase/auth';
@@ -15,7 +14,6 @@ import { auth } from '../../services/firebase.js';
 import { markCurrentWebsiteUserOffline, saveWebsiteUserPresence } from '../../services/websiteUsers.js';
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
-let recaptchaVerifier = null;
 
 const syncUser = async (credential) => {
   if (credential?.user) {
@@ -71,26 +69,19 @@ export const authService = {
     return signInWithRedirect(auth, createAppleProvider());
   },
 
-  getPhoneVerifier(containerId = 'phone-recaptcha') {
-    if (recaptchaVerifier) {
-      return recaptchaVerifier;
+  async sendVerificationEmail() {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
     }
 
-    recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
-      size: 'invisible',
-      callback: () => {},
-    });
-
-    return recaptchaVerifier;
+    await sendEmailVerification(auth.currentUser);
   },
 
-  async sendPhoneCode(phoneNumber, containerId) {
-    const verifier = this.getPhoneVerifier(containerId);
-    return signInWithPhoneNumber(auth, String(phoneNumber || '').trim(), verifier);
-  },
-
-  async confirmPhoneCode(confirmationResult, code) {
-    return syncUser(await confirmationResult.confirm(String(code || '').trim()));
+  async reloadCurrentUser() {
+    if (!auth.currentUser) return null;
+    await auth.currentUser.reload();
+    await saveWebsiteUserPresence(auth.currentUser, true);
+    return auth.currentUser;
   },
 
   async completeRedirectLogin() {
