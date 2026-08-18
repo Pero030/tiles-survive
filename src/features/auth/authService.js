@@ -2,11 +2,13 @@ import {
   GoogleAuthProvider,
   OAuthProvider,
   createUserWithEmailAndPassword,
+  deleteUser,
+  getAdditionalUserInfo,
   getRedirectResult,
   onAuthStateChanged,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
-  sendEmailVerification,
   signInWithRedirect,
   signOut,
 } from 'firebase/auth';
@@ -15,12 +17,31 @@ import { markCurrentWebsiteUserOffline, saveWebsiteUserPresence } from '../../se
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
+const accountMissingError = () => new Error('Account does not exist. Please use Register first.');
+
 const syncUser = async (credential) => {
   if (credential?.user) {
     await saveWebsiteUserPresence(credential.user, true);
   }
 
   return credential;
+};
+
+const syncSocialUser = async (credential, { allowNewUser = false } = {}) => {
+  const info = getAdditionalUserInfo(credential);
+
+  if (info?.isNewUser && !allowNewUser) {
+    try {
+      await deleteUser(credential.user);
+    } catch (error) {
+      console.error(error);
+    }
+
+    await signOut(auth).catch(() => {});
+    throw accountMissingError();
+  }
+
+  return syncUser(credential);
 };
 
 const createGoogleProvider = () => {
@@ -46,19 +67,21 @@ export const authService = {
   },
 
   async registerWithEmail(email, password) {
-    return syncUser(await createUserWithEmailAndPassword(auth, normalizeEmail(email), password));
+    const credential = await createUserWithEmailAndPassword(auth, normalizeEmail(email), password);
+    await sendEmailVerification(credential.user);
+    return syncUser(credential);
   },
 
   async signInWithEmail(email, password) {
     return syncUser(await signInWithEmailAndPassword(auth, normalizeEmail(email), password));
   },
 
-  async signInWithGoogle() {
-    return syncUser(await signInWithPopup(auth, createGoogleProvider()));
+  async signInWithGoogle(options) {
+    return syncSocialUser(await signInWithPopup(auth, createGoogleProvider()), options);
   },
 
-  async signInWithApple() {
-    return syncUser(await signInWithPopup(auth, createAppleProvider()));
+  async signInWithApple(options) {
+    return syncSocialUser(await signInWithPopup(auth, createAppleProvider()), options);
   },
 
   async redirectWithGoogle() {
@@ -85,7 +108,7 @@ export const authService = {
   },
 
   async completeRedirectLogin() {
-    return syncUser(await getRedirectResult(auth));
+    return syncSocialUser(await getRedirectResult(auth), { allowNewUser: true });
   },
 
   async signOut() {
