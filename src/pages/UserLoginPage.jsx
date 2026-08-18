@@ -23,7 +23,9 @@ const getFriendlyError = (error) => {
   if (message.includes('auth/popup-closed-by-user')) return 'The login popup was closed before sign-in finished.';
   if (message.includes('auth/email-already-in-use')) return 'This email already has an account. Use Sign in instead.';
   if (message.includes('auth/weak-password')) return 'Password must have at least 6 characters.';
-  if (message.includes('auth/invalid-credential')) return 'Email or password is not correct.';
+  if (message.includes('Account does not exist')) return 'Account does not exist. Please use Register first.';
+  if (message.includes('auth/user-not-found')) return 'Account does not exist. Please use Register first.';
+  if (message.includes('auth/invalid-credential')) return 'Email or password is not correct, or this account does not exist yet.';
 
   return message;
 };
@@ -157,13 +159,13 @@ export default function UserLoginPage() {
         </form>
 
         <div className="provider-login-grid">
-          <button className="provider-login-button google-login-button" type="button" onClick={() => runAction('google', () => authService.signInWithGoogle())} disabled={Boolean(busy)}>
+          <button className="provider-login-button google-login-button" type="button" onClick={() => runAction('google', () => authService.signInWithGoogle({ allowNewUser: mode === 'register' }))} disabled={Boolean(busy)}>
             <GoogleMark />
-            <span>Sign in with Google</span>
+            <span>{mode === 'register' ? 'Register with Google' : 'Sign in with Google'}</span>
           </button>
-          <button className="provider-login-button apple-login-button" type="button" onClick={() => runAction('apple', () => authService.signInWithApple())} disabled={Boolean(busy)}>
+          <button className="provider-login-button apple-login-button" type="button" onClick={() => runAction('apple', () => authService.signInWithApple({ allowNewUser: mode === 'register' }))} disabled={Boolean(busy)}>
             <Apple size={21} fill="currentColor" />
-            <span>Sign in with Apple</span>
+            <span>{mode === 'register' ? 'Register with Apple' : 'Sign in with Apple'}</span>
           </button>
         </div>
 
