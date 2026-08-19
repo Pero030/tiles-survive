@@ -15,8 +15,8 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
-import { auth, db, isFirebaseConfigured, storage } from '../../services/firebase.js';
+import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
+import { uploadProfileImageToR2 } from '../../services/profileImages.js';
 import { savePublicProfile } from '../../services/profileDirectory.js';
 import { markCurrentWebsiteUserOffline, saveWebsiteUserPresence } from '../../services/websiteUsers.js';
 
@@ -111,7 +111,7 @@ const syncPublicProfile = async (user, partialProfile = {}) => {
 
   await savePublicProfile(profile);
 
-  if ((profile.gameServer || profile.allianceName || profile.allianceTag) && (
+  if ((profile.gameServer || profile.allianceName || profile.allianceTag || profile.photoURL) && (
     privateProfile.gameServer !== profile.gameServer
     || privateProfile.allianceName !== profile.allianceName
     || privateProfile.allianceTag !== profile.allianceTag
@@ -245,7 +245,7 @@ export const authService = {
     };
   },
 
-  async updateProfileSettings({ displayName, gameServer, allianceName, allianceTag }) {
+  async updateProfileSettings({ displayName, gameServer, allianceName, allianceTag, photoURL: nextPhotoURL }) {
     if (!auth.currentUser) {
       throw new Error('No signed in user found.');
     }
@@ -258,7 +258,7 @@ export const authService = {
       getUserProfileSnapshot(auth.currentUser.uid, 'users'),
       getUserProfileSnapshot(auth.currentUser.uid, 'publicProfiles'),
     ]);
-    const photoURL = normalizePhotoURL(auth.currentUser.photoURL || privateProfile.photoURL || publicProfile.photoURL);
+    const photoURL = normalizePhotoURL(nextPhotoURL || auth.currentUser.photoURL || privateProfile.photoURL || publicProfile.photoURL);
 
     await updateProfile(auth.currentUser, { displayName: normalizedDisplayName, photoURL });
     await setDoc(doc(db, 'users', auth.currentUser.uid), {
@@ -300,16 +300,7 @@ export const authService = {
       throw new Error('Profile image must be smaller than 3 MB.');
     }
 
-    const extension = file.type.split('/')[1]?.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
-    const avatarRef = ref(storage, `userAvatars/${auth.currentUser.uid}/profile-${Date.now()}.${extension}`);
-    await uploadBytes(avatarRef, file, {
-      contentType: file.type,
-      customMetadata: {
-        ownerUid: auth.currentUser.uid,
-      },
-    });
-
-    const photoURL = await getDownloadURL(avatarRef);
+    const photoURL = await uploadProfileImageToR2({ file });
     await updateProfile(auth.currentUser, { photoURL });
     await setDoc(doc(db, 'users', auth.currentUser.uid), {
       photoURL,
