@@ -34,6 +34,18 @@ const chatEmojiOptions = ['😀', '😂', '😍', '😎', '😭', '😡', '👍'
 
 const getTimestampValue = (timestamp) => timestamp?.toMillis?.() || 0;
 
+const normalizeChatLanguage = (languageCode) => String(languageCode || '')
+  .trim()
+  .replace(/^\/[^/]+\//, '')
+  .split('|')[0]
+  .toLowerCase()
+  .split('-')[0] || 'en';
+
+const getStoredChatLanguage = () => {
+  if (typeof window === 'undefined') return 'en';
+  return normalizeChatLanguage(window.localStorage.getItem('tiles-survive-language') || document.documentElement.lang || 'en');
+};
+
 const cleanMentionName = (name) => String(name || 'Player').trim().replace(/\s+/g, ' ').slice(0, 40);
 
 const getMentionQuery = (message) => {
@@ -135,6 +147,8 @@ export default function ChatPage() {
   const [publicProfiles, setPublicProfiles] = useState([]);
   const [draft, setDraft] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [chatLanguage, setChatLanguage] = useState(() => getStoredChatLanguage());
+  const [translatedMessages, setTranslatedMessages] = useState({});
   const [readByRoom, setReadByRoom] = useState(() => getStoredReadState(authService.getCurrentUser()?.uid));
   const [status, setStatus] = useState('');
   const [sending, setSending] = useState(false);
@@ -278,6 +292,60 @@ export default function ChatPage() {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length, activeRoom?.id]);
 
+  useEffect(() => {
+    const syncChatLanguage = () => setChatLanguage(getStoredChatLanguage());
+    syncChatLanguage();
+
+    window.addEventListener('tiles-survive-translation-change', syncChatLanguage);
+    const intervalId = window.setInterval(syncChatLanguage, 1200);
+
+    return () => {
+      window.removeEventListener('tiles-survive-translation-change', syncChatLanguage);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user || !activeRoom?.id || chatLanguage === 'en') {
+      return undefined;
+    }
+
+    let isMounted = true;
+    const messagesToTranslate = messages.filter((message) => (
+      message.id
+      && message.text
+      && message.uid !== user.uid
+      && !message.translations?.[chatLanguage]
+      && !translatedMessages[`${message.id}:${chatLanguage}`]
+    ));
+
+    messagesToTranslate.slice(0, 12).forEach((message) => {
+      chatService.translateMessage({
+        roomId: activeRoom.id,
+        messageId: message.id,
+        targetLanguage: chatLanguage,
+      })
+        .then((translatedText) => {
+          if (!isMounted || !translatedText) return;
+          setTranslatedMessages((current) => ({
+            ...current,
+            [`${message.id}:${chatLanguage}`]: translatedText,
+          }));
+        })
+        .catch(() => {
+          if (!isMounted) return;
+          setTranslatedMessages((current) => ({
+            ...current,
+            [`${message.id}:${chatLanguage}`]: message.text,
+          }));
+        });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [activeRoom?.id, chatLanguage, messages, translatedMessages, user]);
+
   const trimmedDraft = useMemo(() => draft.trim(), [draft]);
   const currentPublicProfile = useMemo(() => ({
     uid: user?.uid,
@@ -285,6 +353,7 @@ export default function ChatPage() {
     gameServer: profile.gameServer || '',
     allianceName: profile.allianceName || '',
     allianceTag: profile.allianceTag || '',
+    photoURL: user?.photoURL || profile.photoURL || '',
   }), [profile, user]);
   const allVisibleProfiles = useMemo(() => [
     currentPublicProfile,
@@ -430,6 +499,22 @@ export default function ChatPage() {
 
   const totalUnreadRooms = rooms.filter((room) => hasUnreadMessages(room)).length;
 
+  const getDisplayedMessageText = (message) => {
+    if (chatLanguage === 'en' || message.uid === user.uid) {
+      return message.text;
+    }
+
+    return message.translations?.[chatLanguage]
+      || translatedMessages[`${message.id}:${chatLanguage}`]
+      || message.text;
+  };
+
+  const getMessageAuthorProfile = (message) => allVisibleProfiles.find((item) => item.uid === message.uid) || {};
+
+  const getMessagePhotoURL = (message) => message.photoURL || getMessageAuthorProfile(message).photoURL || '';
+
+  const getMessageInitial = (message) => String(message.displayName || getMessageAuthorProfile(message).displayName || 'P').trim().slice(0, 1).toUpperCase();
+
   if (!user) {
     return (
       <section className="page-shell page-top chat-page">
@@ -553,11 +638,16 @@ export default function ChatPage() {
             <div className="chat-message-list" ref={listRef} aria-live="polite">
               {messages.length ? messages.map((message) => (
                 <article className={message.uid === user.uid ? 'chat-message is-own' : 'chat-message'} key={message.id}>
-                  <header translate="no">
-                    <strong>{message.senderLabel || message.displayName || 'Player'}</strong>
-                    {message.createdAt ? <time>{formatChatTime(message.createdAt)}</time> : null}
-                  </header>
-                  <p>{renderMessageText(message.text, activeRoomMemberProfiles)}</p>
+                  <div className={getMessagePhotoURL(message) ? 'chat-message-avatar has-photo' : 'chat-message-avatar'} translate="no">
+                    {getMessagePhotoURL(message) ? <img src={getMessagePhotoURL(message)} alt="" /> : getMessageInitial(message)}
+                  </div>
+                  <div className="chat-message-body">
+                    <header translate="no">
+                      <strong>{message.senderLabel || message.displayName || 'Player'}</strong>
+                      {message.createdAt ? <time>{formatChatTime(message.createdAt)}</time> : null}
+                    </header>
+                    <p>{renderMessageText(getDisplayedMessageText(message), activeRoomMemberProfiles)}</p>
+                  </div>
                 </article>
               )) : (
                 <div className="chat-empty-state">
