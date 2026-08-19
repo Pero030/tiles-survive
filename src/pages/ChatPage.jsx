@@ -1,4 +1,4 @@
-import { LockKeyhole, MessageCircle, Plus, Search, Send, ShieldCheck, UserPlus, Users } from 'lucide-react';
+import { LockKeyhole, MessageCircle, Plus, Search, Send, ShieldCheck, SmilePlus, Trash2, UserPlus, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authService } from '../features/auth/authService.js';
@@ -29,6 +29,25 @@ const getSearchText = (profile) => [
   profile.allianceTag,
   profile.uid,
 ].filter(Boolean).join(' ').toLowerCase();
+
+const chatEmojiOptions = ['😀', '😂', '😍', '😎', '😭', '😡', '👍', '👎', '🙏', '🔥', '💪', '🎉', '❤️', '💚', '💎', '⚔️', '🛡️', '🏆', '✅', '❌'];
+
+const getTimestampValue = (timestamp) => timestamp?.toMillis?.() || 0;
+
+const getStoredReadState = (uid) => {
+  if (typeof window === 'undefined' || !uid) return {};
+
+  try {
+    return JSON.parse(window.localStorage.getItem(`tiles-survive-chat-read-${uid}`) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const storeReadState = (uid, state) => {
+  if (typeof window === 'undefined' || !uid) return;
+  window.localStorage.setItem(`tiles-survive-chat-read-${uid}`, JSON.stringify(state));
+};
 
 function UserPicker({ filteredProfiles, selectedUserIds, title, toggleUser, userSearch, setUserSearch }) {
   const searchId = `${title.replace(/\s+/g, '-').toLowerCase()}-search`;
@@ -67,10 +86,13 @@ export default function ChatPage() {
   const [user, setUser] = useState(() => authService.getCurrentUser());
   const [profile, setProfile] = useState({});
   const [privateRooms, setPrivateRooms] = useState([]);
+  const [publicRoomSnapshots, setPublicRoomSnapshots] = useState({});
   const [activeRoomId, setActiveRoomId] = useState('global');
   const [messages, setMessages] = useState([]);
   const [publicProfiles, setPublicProfiles] = useState([]);
   const [draft, setDraft] = useState('');
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [readByRoom, setReadByRoom] = useState(() => getStoredReadState(authService.getCurrentUser()?.uid));
   const [status, setStatus] = useState('');
   const [sending, setSending] = useState(false);
   const [creatingRoom, setCreatingRoom] = useState(false);
@@ -87,8 +109,10 @@ export default function ChatPage() {
     if (!user) {
       setProfile({});
       setPrivateRooms([]);
+      setPublicRoomSnapshots({});
       setMessages([]);
       setActiveRoomId('global');
+      setReadByRoom({});
       return undefined;
     }
 
@@ -103,6 +127,10 @@ export default function ChatPage() {
       isMounted = false;
     };
   }, [user]);
+
+  useEffect(() => {
+    setReadByRoom(getStoredReadState(user?.uid));
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!user) {
@@ -132,19 +160,39 @@ export default function ChatPage() {
 
   const globalRoom = useMemo(() => chatService.getGlobalRoom(), []);
   const allianceRoom = useMemo(() => chatService.getAllianceRoomForProfile(profile), [profile?.gameServer, profile?.allianceTag]);
+  const liveGlobalRoom = publicRoomSnapshots.global ? { ...globalRoom, ...publicRoomSnapshots.global } : globalRoom;
+  const liveAllianceRoom = allianceRoom && publicRoomSnapshots[allianceRoom.id]
+    ? { ...allianceRoom, ...publicRoomSnapshots[allianceRoom.id] }
+    : allianceRoom;
   const rooms = useMemo(() => [
-    globalRoom,
-    ...(allianceRoom ? [allianceRoom] : []),
+    liveGlobalRoom,
+    ...(liveAllianceRoom ? [liveAllianceRoom] : []),
     ...privateRooms,
-  ], [globalRoom, allianceRoom, privateRooms]);
-  const activeRoom = rooms.find((room) => room.id === activeRoomId) || globalRoom;
+  ], [liveGlobalRoom, liveAllianceRoom, privateRooms]);
+  const activeRoom = rooms.find((room) => room.id === activeRoomId) || liveGlobalRoom;
   const canInviteActiveRoom = chatService.canInviteToRoom(activeRoom, user);
+  const canDeleteActiveRoom = chatService.canDeleteRoom(activeRoom, user);
 
   useEffect(() => {
     if (!rooms.some((room) => room.id === activeRoomId)) {
       setActiveRoomId('global');
     }
   }, [activeRoomId, rooms]);
+
+  useEffect(() => {
+    if (!user) {
+      return undefined;
+    }
+
+    const roomIds = ['global', allianceRoom?.id].filter(Boolean);
+    const unsubscribes = roomIds.map((roomId) => chatService.subscribeToRoom(
+      roomId,
+      (room) => setPublicRoomSnapshots((current) => ({ ...current, [roomId]: room })),
+      (error) => setStatus(error.message || 'Could not load chat notifications.'),
+    ));
+
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+  }, [user, allianceRoom?.id]);
 
   useEffect(() => {
     if (!user || !activeRoom?.id) {
@@ -161,6 +209,26 @@ export default function ChatPage() {
       (error) => setStatus(error.message || 'Could not load chat messages.'),
     );
   }, [user, activeRoom?.id]);
+
+  useEffect(() => {
+    if (!user?.uid || !activeRoom?.id) {
+      return;
+    }
+
+    const newestMessageAt = messages.reduce((newest, message) => Math.max(newest, getTimestampValue(message.createdAt)), 0);
+    const roomUpdatedAt = getTimestampValue(activeRoom.lastMessageAt || activeRoom.updatedAt);
+    const newestReadAt = Math.max(newestMessageAt, roomUpdatedAt);
+
+    if (!newestReadAt || readByRoom[activeRoom.id] >= newestReadAt) {
+      return;
+    }
+
+    setReadByRoom((current) => {
+      const next = { ...current, [activeRoom.id]: newestReadAt };
+      storeReadState(user.uid, next);
+      return next;
+    });
+  }, [activeRoom?.id, activeRoom?.lastMessageAt, activeRoom?.updatedAt, messages, readByRoom, user?.uid]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
@@ -213,6 +281,28 @@ export default function ChatPage() {
     }
   };
 
+  const handleDeletePrivateRoom = async () => {
+    if (!activeRoom?.id || activeRoom.type !== 'private') {
+      return;
+    }
+
+    const confirmed = window.confirm(`Delete private chat "${activeRoom.title || 'Private Chat'}" for all members?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setStatus('');
+
+    try {
+      await chatService.deletePrivateRoom(activeRoom.id);
+      setActiveRoomId('global');
+      setMessages([]);
+      setStatus('Private chat deleted.');
+    } catch (error) {
+      setStatus(error.message || 'Private chat could not be deleted.');
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setStatus('');
@@ -231,6 +321,25 @@ export default function ChatPage() {
       setSending(false);
     }
   };
+
+  const handleAddEmoji = (emoji) => {
+    setDraft((current) => `${current}${emoji}`);
+    setEmojiOpen(false);
+  };
+
+  const hasUnreadMessages = (room) => {
+    if (!room?.id || room.id === activeRoomId) return 0;
+    const latest = getTimestampValue(room.lastMessageAt || room.updatedAt);
+    return Boolean(latest && latest > (readByRoom[room.id] || 0));
+  };
+
+  const getRoomButtonClass = (room) => [
+    'chat-room-button',
+    activeRoomId === room?.id ? 'is-active' : '',
+    hasUnreadMessages(room) ? 'has-unread' : '',
+  ].filter(Boolean).join(' ');
+
+  const totalUnreadRooms = rooms.filter((room) => hasUnreadMessages(room)).length;
 
   if (!user) {
     return (
@@ -260,17 +369,19 @@ export default function ChatPage() {
         <div className="chat-room-layout">
           <aside className="chat-room-sidebar">
             <div className="chat-room-group">
-              <h2>Rooms</h2>
-              <button className={activeRoomId === 'global' ? 'chat-room-button is-active' : 'chat-room-button'} type="button" onClick={() => setActiveRoomId('global')}>
+              <h2>Rooms {totalUnreadRooms ? <span className="chat-room-total-badge">{totalUnreadRooms}</span> : null}</h2>
+              <button className={getRoomButtonClass(liveGlobalRoom)} type="button" onClick={() => setActiveRoomId('global')}>
                 <MessageCircle size={17} />
                 <span>Global</span>
                 <small>All signed-in users</small>
+                {hasUnreadMessages(liveGlobalRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
               </button>
               {allianceRoom ? (
-                <button className={activeRoomId === allianceRoom.id ? 'chat-room-button is-active' : 'chat-room-button'} type="button" onClick={() => setActiveRoomId(allianceRoom.id)} translate="no">
+                <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => setActiveRoomId(allianceRoom.id)} translate="no">
                   <ShieldCheck size={17} />
                   <span>{allianceRoom.title}</span>
                   <small>Your server and alliance tag</small>
+                  {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
                 </button>
               ) : (
                 <div className="chat-room-note">
@@ -282,10 +393,11 @@ export default function ChatPage() {
             <div className="chat-room-group">
               <h2>Private chats</h2>
               {privateRooms.length ? privateRooms.map((room) => (
-                <button className={activeRoomId === room.id ? 'chat-room-button is-active' : 'chat-room-button'} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)}>
+                <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)}>
                   <LockKeyhole size={17} />
                   <span>{room.title || 'Private Chat'}</span>
                   <small>{room.memberCount || Object.keys(room.memberUids || {}).length || 1} members</small>
+                  {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
                 </button>
               )) : <p className="chat-room-note">No private chats yet.</p>}
             </div>
@@ -319,7 +431,14 @@ export default function ChatPage() {
                 <span>{activeRoom.type === 'global' ? 'Global chat' : activeRoom.type === 'alliance' ? 'Alliance chat' : 'Private chat'}</span>
                 <h2 translate={activeRoom.type === 'alliance' ? 'no' : undefined}>{activeRoom.title || 'Private Chat'}</h2>
               </div>
-              {activeRoom.type === 'private' ? <small>{activeRoom.invitePolicy === 'allMembers' ? 'Members can invite' : 'Creator invites only'}</small> : null}
+              <div className="chat-room-heading-actions">
+                {activeRoom.type === 'private' ? <small>{activeRoom.invitePolicy === 'allMembers' ? 'Members can invite' : 'Creator invites only'}</small> : null}
+                {canDeleteActiveRoom ? (
+                  <button className="chat-delete-room-button" type="button" onClick={handleDeletePrivateRoom}>
+                    <Trash2 size={16} /> Delete chat
+                  </button>
+                ) : null}
+              </div>
             </div>
 
             {activeRoom.type === 'private' && canInviteActiveRoom ? (
@@ -363,14 +482,28 @@ export default function ChatPage() {
 
             <form className="chat-compose" onSubmit={handleSubmit}>
               <label className="sr-only" htmlFor="chat-message">Message</label>
-              <textarea
-                id="chat-message"
-                maxLength={800}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder={`Write to ${activeRoom.title || 'this chat'}...`}
-                rows={3}
-                value={draft}
-              />
+              <div className="chat-compose-field">
+                <textarea
+                  id="chat-message"
+                  maxLength={800}
+                  onChange={(event) => setDraft(event.target.value)}
+                  placeholder={`Write to ${activeRoom.title || 'this chat'}...`}
+                  rows={3}
+                  value={draft}
+                />
+                <button className="chat-emoji-toggle" type="button" onClick={() => setEmojiOpen((value) => !value)} aria-expanded={emojiOpen} aria-label="Choose emoji">
+                  <SmilePlus size={19} />
+                </button>
+                {emojiOpen ? (
+                  <div className="chat-emoji-picker" translate="no">
+                    {chatEmojiOptions.map((emoji) => (
+                      <button key={emoji} type="button" onClick={() => handleAddEmoji(emoji)}>
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
               <button className="user-auth-primary" type="submit" disabled={sending || !trimmedDraft}>
                 <Send size={18} /> {sending ? 'Sending...' : 'Send'}
               </button>
