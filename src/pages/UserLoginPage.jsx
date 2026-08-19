@@ -1,5 +1,5 @@
 import { Apple, BadgeCheck, ImagePlus, KeyRound, Mail, ShieldCheck, UserRound } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { authService } from '../features/auth/authService.js';
 import { normalizeAdminEmail, subscribeToAdminAccess } from '../services/adminAccess.js';
 
@@ -48,6 +48,13 @@ export default function UserLoginPage() {
   const [busy, setBusy] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  const previewURLRef = useRef('');
+
+  useEffect(() => () => {
+    if (previewURLRef.current) {
+      URL.revokeObjectURL(previewURLRef.current);
+    }
+  }, []);
 
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
@@ -169,10 +176,26 @@ export default function UserLoginPage() {
     }
 
     await runAction('profile-image', async () => {
-      const nextProfile = await authService.uploadProfileImage(file);
-      setPhotoURL(nextProfile.photoURL);
-      setUser({ ...nextProfile.user });
-      event.target.value = '';
+      const previousPhotoURL = photoURL;
+      if (previewURLRef.current) {
+        URL.revokeObjectURL(previewURLRef.current);
+      }
+
+      previewURLRef.current = URL.createObjectURL(file);
+      setPhotoURL(previewURLRef.current);
+      try {
+        const nextProfile = await authService.uploadProfileImage(file);
+        URL.revokeObjectURL(previewURLRef.current);
+        previewURLRef.current = '';
+        setPhotoURL(nextProfile.photoURL);
+        setUser({ ...nextProfile.user });
+        event.target.value = '';
+      } catch (error) {
+        URL.revokeObjectURL(previewURLRef.current);
+        previewURLRef.current = '';
+        setPhotoURL(previousPhotoURL);
+        throw error;
+      }
     }, 'Profile image saved.');
   };
 
