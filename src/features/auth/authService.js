@@ -27,6 +27,31 @@ const normalizeGameServer = (gameServer) => String(gameServer || '').replace(/\D
 const normalizeAllianceName = (allianceName) => String(allianceName || '').trim().slice(0, 48);
 const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
 
+const getUserProfileSnapshot = async (uid, collectionName) => {
+  if (!uid || !isFirebaseConfigured()) {
+    return {};
+  }
+
+  const snapshot = await getDoc(doc(db, collectionName, uid)).catch(() => null);
+  return snapshot?.exists?.() ? snapshot.data() : {};
+};
+
+const mergeUserProfile = (user, privateProfile = {}, publicProfile = {}, partialProfile = {}) => {
+  const displayName = partialProfile.displayName
+    ?? privateProfile.displayName
+    ?? publicProfile.displayName
+    ?? user?.displayName
+    ?? '';
+
+  return {
+    uid: user?.uid,
+    displayName: String(displayName || '').trim(),
+    gameServer: normalizeGameServer(partialProfile.gameServer ?? privateProfile.gameServer ?? publicProfile.gameServer),
+    allianceName: normalizeAllianceName(partialProfile.allianceName ?? privateProfile.allianceName ?? publicProfile.allianceName),
+    allianceTag: normalizeAllianceTag(partialProfile.allianceTag ?? privateProfile.allianceTag ?? publicProfile.allianceTag),
+  };
+};
+
 const syncUser = async (credential) => {
   if (credential?.user) {
     await saveWebsiteUserPresence(credential.user, true);
@@ -75,17 +100,28 @@ const syncPublicProfile = async (user, partialProfile = {}) => {
     return;
   }
 
-  const snapshot = await getDoc(doc(db, 'users', user.uid)).catch(() => null);
-  const profile = snapshot?.exists?.() ? snapshot.data() : {};
+  const [privateProfile, publicProfile] = await Promise.all([
+    getUserProfileSnapshot(user.uid, 'users'),
+    getUserProfileSnapshot(user.uid, 'publicProfiles'),
+  ]);
+  const profile = mergeUserProfile(user, privateProfile, publicProfile, partialProfile);
 
-  await savePublicProfile({
-    uid: user.uid,
-    displayName: user.displayName || profile.displayName || '',
-    gameServer: profile.gameServer || '',
-    allianceName: profile.allianceName || '',
-    allianceTag: profile.allianceTag || '',
-    ...partialProfile,
-  });
+  await savePublicProfile(profile);
+
+  if ((profile.gameServer || profile.allianceName || profile.allianceTag) && (
+    privateProfile.gameServer !== profile.gameServer
+    || privateProfile.allianceName !== profile.allianceName
+    || privateProfile.allianceTag !== profile.allianceTag
+    || privateProfile.displayName !== profile.displayName
+  )) {
+    await setDoc(doc(db, 'users', user.uid), {
+      displayName: profile.displayName,
+      gameServer: profile.gameServer,
+      allianceName: profile.allianceName,
+      allianceTag: profile.allianceTag,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  }
 };
 
 export const authService = {
@@ -156,8 +192,12 @@ export const authService = {
       return {};
     }
 
-    const snapshot = await getDoc(doc(db, 'users', auth.currentUser.uid));
-    return snapshot.exists() ? snapshot.data() : {};
+    const [privateProfile, publicProfile] = await Promise.all([
+      getUserProfileSnapshot(auth.currentUser.uid, 'users'),
+      getUserProfileSnapshot(auth.currentUser.uid, 'publicProfiles'),
+    ]);
+
+    return mergeUserProfile(auth.currentUser, privateProfile, publicProfile);
   },
 
   async updateGameServer(gameServer) {
