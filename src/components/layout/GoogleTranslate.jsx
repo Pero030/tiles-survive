@@ -79,9 +79,10 @@ const applyLanguageToSelect = (select, languageCode, shouldDispatch = false) => 
 
   if (select.value !== code) {
     select.value = code;
-    if (shouldDispatch) {
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    }
+  }
+
+  if (shouldDispatch) {
+    select.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
   return true;
@@ -107,13 +108,14 @@ export function GoogleTranslate() {
   const flagSources = getFlagImageSourcesForLanguage(selectedLanguage);
   const wrapperRef = useRef(null);
   const appliedLanguageRef = useRef('');
+  const repairTimeoutRef = useRef(null);
 
   useEffect(() => {
     storeSelectedLanguage(selectedLanguage);
 
-    const applySelectedLanguage = (shouldDispatch = false) => {
+    const applySelectedLanguage = (shouldDispatch = false, languageOverride = '') => {
       const select = wrapperRef.current?.querySelector('select.goog-te-combo');
-      const languageToApply = readStoredLanguage() || selectedLanguage;
+      const languageToApply = languageOverride || readStoredLanguage() || selectedLanguage;
       const didApply = applyLanguageToSelect(select, languageToApply, shouldDispatch);
 
       if (didApply) {
@@ -124,12 +126,28 @@ export function GoogleTranslate() {
       return didApply;
     };
 
+    const scheduleTranslationRepair = (delay = 350) => {
+      window.clearTimeout(repairTimeoutRef.current);
+      repairTimeoutRef.current = window.setTimeout(() => {
+        const storedLanguage = readStoredLanguage() || selectedLanguage;
+        if (!storedLanguage || storedLanguage === 'en') {
+          return;
+        }
+
+        storeSelectedLanguage(storedLanguage);
+        applySelectedLanguage(true, storedLanguage);
+        window.setTimeout(notifyTranslationChange, 600);
+      }, delay);
+    };
+
     const retryApplySelectedLanguage = () => {
       let tries = 0;
       const intervalId = window.setInterval(() => {
         tries += 1;
-        const shouldDispatch = appliedLanguageRef.current !== selectedLanguage;
-        if (applySelectedLanguage(shouldDispatch) || tries >= 20) {
+        const storedLanguage = readStoredLanguage() || selectedLanguage;
+        const shouldDispatch = storedLanguage !== 'en' && (appliedLanguageRef.current !== storedLanguage || tries === 4 || tries === 12);
+        const didApply = applySelectedLanguage(shouldDispatch, storedLanguage);
+        if ((didApply && (storedLanguage === 'en' || tries >= 12)) || tries >= 24) {
           window.clearInterval(intervalId);
         }
       }, 250);
@@ -177,6 +195,7 @@ export function GoogleTranslate() {
       }
       attachChangeListener();
       retryApplySelectedLanguage();
+      scheduleTranslationRepair(700);
     };
 
     if (window.google?.translate) {
@@ -194,11 +213,26 @@ export function GoogleTranslate() {
       observer.observe(wrapperRef.current, { childList: true, subtree: true });
     }
 
+    let lastLocation = window.location.href;
+    const locationIntervalId = window.setInterval(() => {
+      if (lastLocation !== window.location.href) {
+        lastLocation = window.location.href;
+        scheduleTranslationRepair(500);
+      }
+    }, 800);
+    const repairOnFocus = () => scheduleTranslationRepair(250);
+    window.addEventListener('focus', repairOnFocus);
+    document.addEventListener('visibilitychange', repairOnFocus);
+
     const retryIntervalId = retryApplySelectedLanguage();
 
     return () => {
       observer.disconnect();
       window.clearInterval(retryIntervalId);
+      window.clearInterval(locationIntervalId);
+      window.clearTimeout(repairTimeoutRef.current);
+      window.removeEventListener('focus', repairOnFocus);
+      document.removeEventListener('visibilitychange', repairOnFocus);
     };
   }, [selectedLanguage]);
 
