@@ -15,7 +15,8 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
-import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
+import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
+import { auth, db, isFirebaseConfigured, storage } from '../../services/firebase.js';
 import { savePublicProfile } from '../../services/profileDirectory.js';
 import { markCurrentWebsiteUserOffline, saveWebsiteUserPresence } from '../../services/websiteUsers.js';
 
@@ -26,6 +27,7 @@ const accountMissingError = () => new Error('Account does not exist. Please use 
 const normalizeGameServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
 const normalizeAllianceName = (allianceName) => String(allianceName || '').trim().slice(0, 48);
 const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
+const normalizePhotoURL = (photoURL) => String(photoURL || '').trim();
 
 const getUserProfileSnapshot = async (uid, collectionName) => {
   if (!uid || !isFirebaseConfigured()) {
@@ -49,6 +51,7 @@ const mergeUserProfile = (user, privateProfile = {}, publicProfile = {}, partial
     gameServer: normalizeGameServer(partialProfile.gameServer ?? privateProfile.gameServer ?? publicProfile.gameServer),
     allianceName: normalizeAllianceName(partialProfile.allianceName ?? privateProfile.allianceName ?? publicProfile.allianceName),
     allianceTag: normalizeAllianceTag(partialProfile.allianceTag ?? privateProfile.allianceTag ?? publicProfile.allianceTag),
+    photoURL: normalizePhotoURL(partialProfile.photoURL ?? privateProfile.photoURL ?? publicProfile.photoURL ?? user?.photoURL),
   };
 };
 
@@ -112,6 +115,7 @@ const syncPublicProfile = async (user, partialProfile = {}) => {
     privateProfile.gameServer !== profile.gameServer
     || privateProfile.allianceName !== profile.allianceName
     || privateProfile.allianceTag !== profile.allianceTag
+    || privateProfile.photoURL !== profile.photoURL
     || privateProfile.displayName !== profile.displayName
   )) {
     await setDoc(doc(db, 'users', user.uid), {
@@ -119,6 +123,7 @@ const syncPublicProfile = async (user, partialProfile = {}) => {
       gameServer: profile.gameServer,
       allianceName: profile.allianceName,
       allianceTag: profile.allianceTag,
+      photoURL: profile.photoURL,
       updatedAt: serverTimestamp(),
     }, { merge: true });
   }
@@ -249,13 +254,19 @@ export const authService = {
     const normalizedServer = normalizeGameServer(gameServer);
     const normalizedAllianceName = normalizeAllianceName(allianceName);
     const normalizedAllianceTag = normalizeAllianceTag(allianceTag);
+    const [privateProfile, publicProfile] = await Promise.all([
+      getUserProfileSnapshot(auth.currentUser.uid, 'users'),
+      getUserProfileSnapshot(auth.currentUser.uid, 'publicProfiles'),
+    ]);
+    const photoURL = normalizePhotoURL(auth.currentUser.photoURL || privateProfile.photoURL || publicProfile.photoURL);
 
-    await updateProfile(auth.currentUser, { displayName: normalizedDisplayName });
+    await updateProfile(auth.currentUser, { displayName: normalizedDisplayName, photoURL });
     await setDoc(doc(db, 'users', auth.currentUser.uid), {
       displayName: normalizedDisplayName,
       gameServer: normalizedServer,
       allianceName: normalizedAllianceName,
       allianceTag: normalizedAllianceTag,
+      photoURL,
       updatedAt: serverTimestamp(),
     }, { merge: true });
     await saveWebsiteUserPresence(auth.currentUser, true);
@@ -264,6 +275,7 @@ export const authService = {
       gameServer: normalizedServer,
       allianceName: normalizedAllianceName,
       allianceTag: normalizedAllianceTag,
+      photoURL,
     });
 
     return {
@@ -271,6 +283,44 @@ export const authService = {
       gameServer: normalizedServer,
       allianceName: normalizedAllianceName,
       allianceTag: normalizedAllianceTag,
+      photoURL,
+    };
+  },
+
+  async uploadProfileImage(file) {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
+    }
+
+    if (!file?.type?.startsWith('image/')) {
+      throw new Error('Please choose an image file.');
+    }
+
+    if (file.size > 3 * 1024 * 1024) {
+      throw new Error('Profile image must be smaller than 3 MB.');
+    }
+
+    const extension = file.type.split('/')[1]?.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+    const avatarRef = ref(storage, `userAvatars/${auth.currentUser.uid}/profile-${Date.now()}.${extension}`);
+    await uploadBytes(avatarRef, file, {
+      contentType: file.type,
+      customMetadata: {
+        ownerUid: auth.currentUser.uid,
+      },
+    });
+
+    const photoURL = await getDownloadURL(avatarRef);
+    await updateProfile(auth.currentUser, { photoURL });
+    await setDoc(doc(db, 'users', auth.currentUser.uid), {
+      photoURL,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await saveWebsiteUserPresence(auth.currentUser, true);
+    await syncPublicProfile(auth.currentUser, { photoURL });
+
+    return {
+      user: auth.currentUser,
+      photoURL,
     };
   },
 
