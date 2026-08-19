@@ -45,3 +45,29 @@ npm run seed:r2-assets
 ```
 
 The script uploads brand images, hero images, flags, skill images and screenshots. It also updates Firestore `siteContent/app.heroImagesBySlug` to public R2 URLs.
+
+## Profile image uploads
+
+Profile images are uploaded to R2 through a Firebase Cloud Function.
+
+Set these Firebase Function secrets before deploying functions:
+
+```bash
+firebase functions:secrets:set R2_ACCESS_KEY_ID
+firebase functions:secrets:set R2_SECRET_ACCESS_KEY
+```
+
+Create `functions/.env` locally with:
+
+```env
+R2_ACCOUNT_ID=your-cloudflare-account-id
+R2_BUCKET=tiles-survive-guide-assets
+R2_PUBLIC_URL=https://pub-12686d91087b4996871337b307ef7e9d.r2.dev
+```
+
+When a user uploads an avatar, the website asks Firebase for a short-lived signed R2 upload URL. The browser uploads the file directly to R2, then Firebase stores only the public R2 image URL in:
+
+```txt
+users/{uid}.photoURL
+publicProfiles/{uid}.photoURL
+```
