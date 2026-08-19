@@ -15,6 +15,7 @@ const navItems = [
   ['navBuildings', '/buildings'],
   ['navWorldMap', '/world-map'],
   ['navPatches', '/patches'],
+  ['navChat', '/chat'],
   ['navTips', '/tips'],
   ['navFaq', '/faq'],
 ];
@@ -22,7 +23,12 @@ const navItems = [
 const fixedNavLabels = {
   navEvents: 'Events',
   navFaq: 'FAQ',
+  navProjectAegis: '🛡️ Project Aegis',
 };
+
+const externalNavItems = [
+  ['navProjectAegis', 'https://ts.midnight-at-aurora.com/'],
+];
 
 export function Header() {
   const [open, setOpen] = useState(false);
@@ -48,6 +54,11 @@ export function Header() {
               </NavLink>
             );
           })}
+          {externalNavItems.map(([label, href]) => (
+            <a className={`nav-link nav-link-${label}`} href={href} key={href} target="_blank" rel="noreferrer" onClick={() => setOpen(false)} translate="no">
+              <span>{fixedNavLabels[label] || t(label)}</span>
+            </a>
+          ))}
         </nav>
 
         <div className="header-actions">

@@ -1,8 +1,7 @@
 import { ExternalLink, Newspaper, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useLanguage } from '../context/LanguageContext.jsx';
-import { getOfficialPatchFeedUrl, getPatchNotes } from '../services/siteContent.js';
-import { applyContentOverrides } from '../features/admin/contentOverrides.js';
+import { getOfficialPatchFeedUrl, getPatchNotes, getSiteContentSnapshot, subscribeToSiteContent } from '../services/siteContent.js';
 import { useLocalizedContent } from '../hooks/useLocalizedContent.js';
 
 const normalizeDateLocale = (locale) => {
@@ -90,6 +89,9 @@ const formatPatchDate = (date, locale) => new Intl.DateTimeFormat(locale, {
 export default function PatchesPage() {
   const { language, t } = useLanguage();
   const { localize } = useLocalizedContent();
+  useSyncExternalStore(subscribeToSiteContent, getSiteContentSnapshot, () => '');
+  const patchNotes = getPatchNotes();
+  const officialPatchFeedUrl = getOfficialPatchFeedUrl();
   const [activeVersion, setActiveVersion] = useState(patchNotes[0]?.id);
   const [dateLocale, setDateLocale] = useState(() => getDateLocale(language));
   const detailRef = useRef(null);
@@ -131,6 +133,20 @@ export default function PatchesPage() {
       detailRef.current?.focus({ preventScroll: true });
     });
   };
+
+  if (!patchNotes.length || !activePatch) {
+    return (
+      <div className="page-shell patch-page">
+        <section className="patch-hero">
+          <div>
+            <p className="eyebrow">{t('patchesEyebrow')}</p>
+            <h1>{t('patchesTitle')}</h1>
+            <p>{t('comingSoon')}</p>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="page-shell patch-page">
