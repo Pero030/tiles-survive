@@ -5,6 +5,7 @@ import { assetPath } from '../../utils/assetPath.js';
 
 const scriptId = 'google-translate-script';
 const elementId = 'google_translate_element';
+const storageKey = 'tiles-survive-language';
 
 const notifyTranslationChange = () => {
   window.dispatchEvent(new CustomEvent('tiles-survive-translation-change'));
@@ -47,7 +48,51 @@ const readCookie = (name) => document.cookie
   .find((cookie) => cookie.startsWith(`${name}=`))
   ?.split('=')[1] || '';
 
+const writeGoogleTranslateCookie = (languageCode) => {
+  const code = normalizeLanguageCode(languageCode) || 'en';
+  const value = code === 'en' ? '/en/en' : `/en/${code}`;
+  document.cookie = `googtrans=${value};path=/;max-age=31536000;SameSite=Lax`;
+};
+
+const readStoredLanguage = () => {
+  if (typeof window === 'undefined') return '';
+  return normalizeLanguageCode(window.localStorage.getItem(storageKey));
+};
+
+const storeSelectedLanguage = (languageCode) => {
+  const code = normalizeLanguageCode(languageCode) || 'en';
+  window.localStorage.setItem(storageKey, code);
+  writeGoogleTranslateCookie(code);
+  document.documentElement.lang = code;
+};
+
+const applyLanguageToSelect = (select, languageCode, shouldDispatch = false) => {
+  const code = normalizeLanguageCode(languageCode) || 'en';
+  if (!select || !code) {
+    return false;
+  }
+
+  const hasOption = Array.from(select.options || []).some((option) => option.value === code);
+  if (!hasOption) {
+    return false;
+  }
+
+  if (select.value !== code) {
+    select.value = code;
+    if (shouldDispatch) {
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+
+  return true;
+};
+
 const readTranslatedLanguage = () => {
+  const storedLanguage = readStoredLanguage();
+  if (storedLanguage) {
+    return storedLanguage;
+  }
+
   const rawCookie = readCookie('googtrans');
   if (!rawCookie) {
     return 'en';
@@ -61,23 +106,52 @@ export function GoogleTranslate() {
   const [selectedLanguage, setSelectedLanguage] = useState(() => readTranslatedLanguage());
   const flagSources = getFlagImageSourcesForLanguage(selectedLanguage);
   const wrapperRef = useRef(null);
+  const appliedLanguageRef = useRef('');
 
   useEffect(() => {
+    storeSelectedLanguage(selectedLanguage);
+
+    const applySelectedLanguage = (shouldDispatch = false) => {
+      const select = wrapperRef.current?.querySelector('select.goog-te-combo');
+      const languageToApply = readStoredLanguage() || selectedLanguage;
+      const didApply = applyLanguageToSelect(select, languageToApply, shouldDispatch);
+
+      if (didApply) {
+        appliedLanguageRef.current = languageToApply;
+        setSelectedLanguage(languageToApply);
+      }
+
+      return didApply;
+    };
+
+    const retryApplySelectedLanguage = () => {
+      let tries = 0;
+      const intervalId = window.setInterval(() => {
+        tries += 1;
+        const shouldDispatch = appliedLanguageRef.current !== selectedLanguage;
+        if (applySelectedLanguage(shouldDispatch) || tries >= 20) {
+          window.clearInterval(intervalId);
+        }
+      }, 250);
+
+      return intervalId;
+    };
+
     const attachChangeListener = () => {
       const select = wrapperRef.current?.querySelector('select.goog-te-combo');
       if (!select || select.dataset.tilesSurviveBound === 'true') {
+        applySelectedLanguage(false);
         return;
       }
 
       select.dataset.tilesSurviveBound = 'true';
-      if (selectedLanguage && select.value !== selectedLanguage) {
-        select.value = selectedLanguage;
-      }
+      applySelectedLanguage(false);
 
       select.addEventListener('change', () => {
-        setSelectedLanguage(select.value || 'en');
+        const nextLanguage = select.value || 'en';
+        storeSelectedLanguage(nextLanguage);
+        setSelectedLanguage(nextLanguage);
         setOpen(false);
-        window.setTimeout(() => setSelectedLanguage(readTranslatedLanguage()), 600);
         window.setTimeout(notifyTranslationChange, 250);
         window.setTimeout(notifyTranslationChange, 1200);
       });
@@ -102,6 +176,7 @@ export function GoogleTranslate() {
         target.dataset.ready = 'true';
       }
       attachChangeListener();
+      retryApplySelectedLanguage();
     };
 
     if (window.google?.translate) {
@@ -119,7 +194,12 @@ export function GoogleTranslate() {
       observer.observe(wrapperRef.current, { childList: true, subtree: true });
     }
 
-    return () => observer.disconnect();
+    const retryIntervalId = retryApplySelectedLanguage();
+
+    return () => {
+      observer.disconnect();
+      window.clearInterval(retryIntervalId);
+    };
   }, [selectedLanguage]);
 
 
