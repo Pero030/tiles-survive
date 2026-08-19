@@ -16,6 +16,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
+import { savePublicProfile } from '../../services/profileDirectory.js';
 import { markCurrentWebsiteUserOffline, saveWebsiteUserPresence } from '../../services/websiteUsers.js';
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
@@ -66,6 +67,24 @@ const createAppleProvider = () => {
   provider.addScope('email');
   provider.addScope('name');
   return provider;
+};
+
+const syncPublicProfile = async (user, partialProfile = {}) => {
+  if (!user?.uid) {
+    return;
+  }
+
+  const snapshot = await getDoc(doc(db, 'users', user.uid)).catch(() => null);
+  const profile = snapshot?.exists?.() ? snapshot.data() : {};
+
+  await savePublicProfile({
+    uid: user.uid,
+    displayName: user.displayName || profile.displayName || '',
+    gameServer: profile.gameServer || '',
+    allianceName: profile.allianceName || '',
+    allianceTag: profile.allianceTag || '',
+    ...partialProfile,
+  });
 };
 
 export const authService = {
@@ -126,6 +145,7 @@ export const authService = {
 
     await updateProfile(auth.currentUser, { displayName: String(displayName || '').trim() });
     await saveWebsiteUserPresence(auth.currentUser, true);
+    await syncPublicProfile(auth.currentUser, { displayName: auth.currentUser.displayName || '' });
     return auth.currentUser;
   },
 
@@ -149,6 +169,7 @@ export const authService = {
       updatedAt: serverTimestamp(),
     }, { merge: true });
     await saveWebsiteUserPresence(auth.currentUser, true);
+    await syncPublicProfile(auth.currentUser, { gameServer: normalizedServer });
     return normalizedServer;
   },
 
@@ -166,6 +187,10 @@ export const authService = {
       updatedAt: serverTimestamp(),
     }, { merge: true });
     await saveWebsiteUserPresence(auth.currentUser, true);
+    await syncPublicProfile(auth.currentUser, {
+      allianceName: normalizedAllianceName,
+      allianceTag: normalizedAllianceTag,
+    });
 
     return {
       allianceName: normalizedAllianceName,
