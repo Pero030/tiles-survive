@@ -160,7 +160,7 @@ export default function UserLoginPage() {
   const handleSaveProfile = async (event) => {
     event.preventDefault();
     await runAction('profile', async () => {
-      const nextProfile = await authService.updateProfileSettings({ displayName, gameServer, allianceName, allianceTag });
+      const nextProfile = await authService.updateProfileSettings({ displayName, gameServer, allianceName, allianceTag, photoURL });
       setGameServer(nextProfile.gameServer);
       setAllianceName(nextProfile.allianceName);
       setAllianceTag(nextProfile.allianceTag);
