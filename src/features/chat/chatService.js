@@ -1,8 +1,10 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
+  getDocs,
   limit,
   onSnapshot,
   orderBy,
@@ -11,6 +13,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
 } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
 import { authService } from '../auth/authService.js';
@@ -104,6 +107,8 @@ const canInviteToRoom = (room, user) => {
   return room.invitePolicy === 'allMembers' && room.memberUids?.[user.uid] === true;
 };
 
+const canDeleteRoom = (room, user) => room?.type === 'private' && Boolean(user?.uid) && room.ownerUid === user.uid;
+
 export const chatService = {
   getGlobalRoom() {
     return { id: 'global', type: 'global', title: 'Global' };
@@ -126,6 +131,8 @@ export const chatService = {
 
   canInviteToRoom,
 
+  canDeleteRoom,
+
   subscribeToPrivateRooms(user, onData, onError) {
     if (typeof window === 'undefined' || !isFirebaseConfigured() || !user?.uid) {
       onData([]);
@@ -138,6 +145,23 @@ export const chatService = {
         onData(snapshot.docs
           .map((roomDoc) => ({ id: roomDoc.id, ...roomDoc.data() }))
           .sort((first, second) => (second.updatedAt?.toMillis?.() || 0) - (first.updatedAt?.toMillis?.() || 0)));
+      },
+      (error) => {
+        onError?.(error);
+      },
+    );
+  },
+
+  subscribeToRoom(roomId, onData, onError) {
+    if (typeof window === 'undefined' || !isFirebaseConfigured() || !roomId) {
+      onData(null);
+      return () => {};
+    }
+
+    return onSnapshot(
+      getRoomRef(roomId),
+      (snapshot) => {
+        onData(snapshot.exists() ? { id: snapshot.id, ...snapshot.data() } : null);
       },
       (error) => {
         onError?.(error);
@@ -212,6 +236,30 @@ export const chatService = {
       memberCount: Object.keys(room.memberUids || {}).length + uniqueMemberUids.length,
       updatedAt: serverTimestamp(),
     });
+  },
+
+  async deletePrivateRoom(roomId) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before deleting a private chat.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      return;
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (!canDeleteRoom(room, auth.currentUser)) {
+      throw new Error('Only the creator can delete this private chat.');
+    }
+
+    const messageSnapshots = await getDocs(query(getRoomMessagesRef(roomId), limit(100)));
+    const batch = writeBatch(db);
+    messageSnapshots.docs.forEach((messageDoc) => {
+      batch.delete(messageDoc.ref);
+    });
+    await batch.commit();
+    await deleteDoc(getRoomRef(roomId));
   },
 
   async sendMessage(room, message) {
