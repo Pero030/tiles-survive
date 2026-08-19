@@ -15,7 +15,8 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
-import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions, isFirebaseConfigured } from '../../services/firebase.js';
 import { authService } from '../auth/authService.js';
 
 const chatRoomsRef = collection(db, 'chatRooms');
@@ -24,6 +25,7 @@ const normalizeMessage = (message) => String(message || '').trim().slice(0, 800)
 const normalizeServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
 const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
 const normalizeRoomTitle = (title) => String(title || '').trim().slice(0, 60);
+const normalizeLanguageCode = (languageCode) => String(languageCode || '').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'en';
 
 const getRoomRef = (roomId) => doc(db, 'chatRooms', roomId);
 const getRoomMessagesRef = (roomId) => collection(db, 'chatRooms', roomId, 'messages');
@@ -300,6 +302,7 @@ export const chatService = {
       allianceName: profile.allianceName || '',
       allianceTag: normalizeAllianceTag(profile.allianceTag),
       displayName: auth.currentUser.displayName || profile.displayName || '',
+      photoURL: auth.currentUser.photoURL || profile.photoURL || '',
       createdAt: serverTimestamp(),
     });
 
@@ -307,5 +310,20 @@ export const chatService = {
       lastMessageAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     }, { merge: true });
+  },
+
+  async translateMessage({ roomId, messageId, targetLanguage }) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before translating chat messages.');
+    }
+
+    const language = normalizeLanguageCode(targetLanguage);
+    if (!roomId || !messageId || language === 'en') {
+      return null;
+    }
+
+    const translateChatMessage = httpsCallable(functions, 'translateChatMessage');
+    const result = await translateChatMessage({ roomId, messageId, targetLanguage: language });
+    return result.data?.translatedText || null;
   },
 };
