@@ -22,9 +22,6 @@ export function LanguageProvider({ children }) {
 
   useEffect(() => {
     document.documentElement.lang = defaultLanguage;
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('tiles-survive-language');
-    }
   }, []);
 
   const value = useMemo(() => {
