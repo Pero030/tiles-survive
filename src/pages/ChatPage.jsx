@@ -34,6 +34,49 @@ const chatEmojiOptions = ['😀', '😂', '😍', '😎', '😭', '😡', '👍'
 
 const getTimestampValue = (timestamp) => timestamp?.toMillis?.() || 0;
 
+const cleanMentionName = (name) => String(name || 'Player').trim().replace(/\s+/g, ' ').slice(0, 40);
+
+const getMentionQuery = (message) => {
+  const match = String(message || '').match(/(^|\s)@([^\s@]*)$/);
+  return match ? match[2].toLowerCase() : null;
+};
+
+const renderMessageText = (text, memberProfiles = []) => {
+  const value = String(text || '');
+  const mentionNames = [...new Set(memberProfiles.map((profile) => cleanMentionName(profile.displayName)).filter(Boolean))]
+    .sort((first, second) => second.length - first.length);
+  const parts = [];
+  let index = 0;
+
+  while (index < value.length) {
+    if (value[index] !== '@') {
+      const nextMention = value.indexOf('@', index);
+      const end = nextMention === -1 ? value.length : nextMention;
+      parts.push(value.slice(index, end));
+      index = end;
+      continue;
+    }
+
+    const matchedName = mentionNames.find((name) => {
+      const mention = `@${name}`;
+      const possibleMatch = value.slice(index, index + mention.length);
+      const nextCharacter = value[index + mention.length] || '';
+      return possibleMatch.toLowerCase() === mention.toLowerCase() && (!nextCharacter || /\s|[.,!?;:]/.test(nextCharacter));
+    });
+
+    if (!matchedName) {
+      parts.push('@');
+      index += 1;
+      continue;
+    }
+
+    parts.push(<span className="chat-mention" key={`${matchedName}-${index}`}>@{matchedName}</span>);
+    index += matchedName.length + 1;
+  }
+
+  return parts;
+};
+
 const getStoredReadState = (uid) => {
   if (typeof window === 'undefined' || !uid) return {};
 
@@ -102,6 +145,7 @@ export default function ChatPage() {
   const [inviteUserIds, setInviteUserIds] = useState([]);
   const [userSearch, setUserSearch] = useState('');
   const listRef = useRef(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => authService.subscribe(setUser), []);
 
@@ -235,6 +279,45 @@ export default function ChatPage() {
   }, [messages.length, activeRoom?.id]);
 
   const trimmedDraft = useMemo(() => draft.trim(), [draft]);
+  const currentPublicProfile = useMemo(() => ({
+    uid: user?.uid,
+    displayName: user?.displayName || profile.displayName || 'Player',
+    gameServer: profile.gameServer || '',
+    allianceName: profile.allianceName || '',
+    allianceTag: profile.allianceTag || '',
+  }), [profile, user]);
+  const allVisibleProfiles = useMemo(() => [
+    currentPublicProfile,
+    ...publicProfiles,
+  ].filter((item) => item.uid), [currentPublicProfile, publicProfiles]);
+  const activeRoomMemberProfiles = useMemo(() => {
+    if (activeRoom.type === 'global') {
+      return allVisibleProfiles;
+    }
+
+    if (activeRoom.type === 'alliance') {
+      return allVisibleProfiles.filter((item) => (
+        String(item.gameServer || '') === String(activeRoom.gameServer || '')
+        && String(item.allianceTag || '').toUpperCase() === String(activeRoom.allianceTag || '').toUpperCase()
+      ));
+    }
+
+    if (activeRoom.type === 'private') {
+      return allVisibleProfiles.filter((item) => activeRoom.memberUids?.[item.uid]);
+    }
+
+    return [];
+  }, [activeRoom, allVisibleProfiles]);
+  const mentionQuery = useMemo(() => getMentionQuery(draft), [draft]);
+  const mentionSuggestions = useMemo(() => {
+    if (mentionQuery === null) {
+      return [];
+    }
+
+    return activeRoomMemberProfiles
+      .filter((item) => cleanMentionName(item.displayName).toLowerCase().startsWith(mentionQuery))
+      .slice(0, 8);
+  }, [activeRoomMemberProfiles, mentionQuery]);
   const filteredProfiles = useMemo(() => {
     const searchValue = userSearch.trim().toLowerCase();
     const profiles = searchValue
@@ -325,6 +408,12 @@ export default function ChatPage() {
   const handleAddEmoji = (emoji) => {
     setDraft((current) => `${current}${emoji}`);
     setEmojiOpen(false);
+  };
+
+  const handleSelectMention = (profileItem) => {
+    const mentionName = cleanMentionName(profileItem.displayName);
+    setDraft((current) => current.replace(/(^|\s)@([^\s@]*)$/, `$1@${mentionName} `));
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   const hasUnreadMessages = (room) => {
@@ -468,7 +557,7 @@ export default function ChatPage() {
                     <strong>{message.senderLabel || message.displayName || 'Player'}</strong>
                     {message.createdAt ? <time>{formatChatTime(message.createdAt)}</time> : null}
                   </header>
-                  <p>{message.text}</p>
+                  <p>{renderMessageText(message.text, activeRoomMemberProfiles)}</p>
                 </article>
               )) : (
                 <div className="chat-empty-state">
@@ -485,6 +574,7 @@ export default function ChatPage() {
               <div className="chat-compose-field">
                 <textarea
                   id="chat-message"
+                  ref={textareaRef}
                   maxLength={800}
                   onChange={(event) => setDraft(event.target.value)}
                   placeholder={`Write to ${activeRoom.title || 'this chat'}...`}
@@ -499,6 +589,17 @@ export default function ChatPage() {
                     {chatEmojiOptions.map((emoji) => (
                       <button key={emoji} type="button" onClick={() => handleAddEmoji(emoji)}>
                         {emoji}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {mentionSuggestions.length ? (
+                  <div className="chat-mention-picker" translate="no">
+                    {mentionSuggestions.map((mentionProfile) => (
+                      <button key={mentionProfile.uid} type="button" onClick={() => handleSelectMention(mentionProfile)}>
+                        <Users size={15} />
+                        <span>{cleanMentionName(mentionProfile.displayName)}</span>
+                        <small>{formatUserOption(mentionProfile)}</small>
                       </button>
                     ))}
                   </div>
