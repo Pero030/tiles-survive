@@ -1,4 +1,4 @@
-import { Apple, BadgeCheck, KeyRound, Mail, ShieldCheck, UserRound } from 'lucide-react';
+import { Apple, BadgeCheck, ImagePlus, KeyRound, Mail, ShieldCheck, UserRound } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { authService } from '../features/auth/authService.js';
 import { normalizeAdminEmail, subscribeToAdminAccess } from '../services/adminAccess.js';
@@ -38,6 +38,7 @@ export default function UserLoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [photoURL, setPhotoURL] = useState('');
   const [gameServer, setGameServer] = useState('');
   const [allianceName, setAllianceName] = useState('');
   const [allianceTag, setAllianceTag] = useState('');
@@ -46,14 +47,18 @@ export default function UserLoginPage() {
   const [statusTone, setStatusTone] = useState('error');
   const [busy, setBusy] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
     setDisplayName(nextUser?.displayName || '');
+    setPhotoURL(nextUser?.photoURL || '');
     if (!nextUser) {
+      setPhotoURL('');
       setGameServer('');
       setAllianceName('');
       setAllianceTag('');
+      setProfileLoaded(false);
     }
     if (nextUser) setStatus('');
   }), []);
@@ -65,17 +70,21 @@ export default function UserLoginPage() {
     }
 
     let isMounted = true;
+    setProfileLoaded(false);
     authService.getCurrentUserProfile()
       .then((profile) => {
         if (isMounted) {
           setGameServer(profile?.gameServer || '');
           setAllianceName(profile?.allianceName || '');
           setAllianceTag(profile?.allianceTag || '');
+          setPhotoURL(profile?.photoURL || user.photoURL || '');
+          setProfileLoaded(true);
         }
       })
       .catch((error) => {
         setStatusTone('error');
         setStatus(getFriendlyError(error));
+        setProfileLoaded(true);
       });
 
     return () => {
@@ -144,14 +153,27 @@ export default function UserLoginPage() {
   const handleSaveProfile = async (event) => {
     event.preventDefault();
     await runAction('profile', async () => {
-      const nextUser = await authService.updateDisplayName(displayName);
-      const nextGameServer = await authService.updateGameServer(gameServer);
-      const nextAllianceInfo = await authService.updateAllianceInfo({ allianceName, allianceTag });
-      setGameServer(nextGameServer);
-      setAllianceName(nextAllianceInfo.allianceName);
-      setAllianceTag(nextAllianceInfo.allianceTag);
-      setUser({ ...nextUser });
+      const nextProfile = await authService.updateProfileSettings({ displayName, gameServer, allianceName, allianceTag });
+      setGameServer(nextProfile.gameServer);
+      setAllianceName(nextProfile.allianceName);
+      setAllianceTag(nextProfile.allianceTag);
+      setPhotoURL(nextProfile.photoURL || nextProfile.user.photoURL || '');
+      setUser({ ...nextProfile.user });
     }, 'Profile saved.');
+  };
+
+  const handleProfileImageUpload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    await runAction('profile-image', async () => {
+      const nextProfile = await authService.uploadProfileImage(file);
+      setPhotoURL(nextProfile.photoURL);
+      setUser({ ...nextProfile.user });
+      event.target.value = '';
+    }, 'Profile image saved.');
   };
 
   const handleGameServerChange = (event) => {
@@ -192,7 +214,9 @@ export default function UserLoginPage() {
       <section className="user-auth-page">
         <div className="user-profile-shell">
           <section className="profile-hero-card">
-            <div className="profile-avatar" translate="no">{userLabel.slice(0, 1).toUpperCase()}</div>
+            <div className={photoURL ? 'profile-avatar has-photo' : 'profile-avatar'} translate="no">
+              {photoURL ? <img src={photoURL} alt="" /> : userLabel.slice(0, 1).toUpperCase()}
+            </div>
             <div className="profile-hero-copy">
               <span className={isVerified ? 'profile-status-chip is-verified' : 'profile-status-chip is-unverified'}>
                 {isVerified ? <BadgeCheck size={17} /> : <Mail size={17} />}
@@ -230,22 +254,33 @@ export default function UserLoginPage() {
                   </div>
                 </div>
                 <label htmlFor="profile-display-name">Display name</label>
-                <input id="profile-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" maxLength={40} />
+                <input id="profile-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" maxLength={40} disabled={!profileLoaded} />
+                <label htmlFor="profile-photo-upload">Profile image</label>
+                <div className="profile-image-upload-row">
+                  <div className={photoURL ? 'profile-image-preview has-photo' : 'profile-image-preview'} translate="no">
+                    {photoURL ? <img src={photoURL} alt="" /> : userLabel.slice(0, 1).toUpperCase()}
+                  </div>
+                  <label className="profile-image-upload-button" htmlFor="profile-photo-upload">
+                    <ImagePlus size={18} />
+                    {busy === 'profile-image' ? 'Uploading...' : 'Upload image'}
+                  </label>
+                  <input id="profile-photo-upload" type="file" accept="image/*" onChange={handleProfileImageUpload} disabled={!profileLoaded || busy === 'profile-image'} />
+                </div>
                 <label htmlFor="profile-game-server">Game server</label>
                 <div className="profile-server-input">
                   <span translate="no">#</span>
-                  <input id="profile-game-server" inputMode="numeric" pattern="[0-9]*" value={gameServer} onChange={handleGameServerChange} placeholder="867" maxLength={6} />
+                  <input id="profile-game-server" inputMode="numeric" pattern="[0-9]*" value={gameServer} onChange={handleGameServerChange} placeholder={profileLoaded ? '867' : 'Loading...'} maxLength={6} disabled={!profileLoaded} />
                 </div>
                 <label htmlFor="profile-alliance-name">Alliance name</label>
-                <input id="profile-alliance-name" value={allianceName} onChange={(event) => setAllianceName(event.target.value.slice(0, 48))} placeholder="EmpireARDA" maxLength={48} />
+                <input id="profile-alliance-name" value={allianceName} onChange={(event) => setAllianceName(event.target.value.slice(0, 48))} placeholder={profileLoaded ? 'EmpireARDA' : 'Loading...'} maxLength={48} disabled={!profileLoaded} />
                 <label htmlFor="profile-alliance-tag">Alliance tag</label>
                 <div className="profile-alliance-tag-input">
                   <span translate="no">[</span>
-                  <input id="profile-alliance-tag" value={allianceTag} onChange={handleAllianceTagChange} placeholder="ADA" maxLength={8} />
+                  <input id="profile-alliance-tag" value={allianceTag} onChange={handleAllianceTagChange} placeholder={profileLoaded ? 'ADA' : 'Loading...'} maxLength={8} disabled={!profileLoaded} />
                   <span translate="no">]</span>
                 </div>
-                <button className="user-auth-primary" type="submit" disabled={busy === 'profile'}>
-                  {busy === 'profile' ? 'Saving...' : 'Save profile'}
+                <button className="user-auth-primary" type="submit" disabled={!profileLoaded || busy === 'profile'}>
+                  {!profileLoaded ? 'Loading profile...' : busy === 'profile' ? 'Saving...' : 'Save profile'}
                 </button>
               </form>
 
