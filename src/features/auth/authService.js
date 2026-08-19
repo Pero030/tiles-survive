@@ -30,6 +30,7 @@ const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().r
 const syncUser = async (credential) => {
   if (credential?.user) {
     await saveWebsiteUserPresence(credential.user, true);
+    await syncPublicProfile(credential.user);
   }
 
   return credential;
@@ -134,6 +135,7 @@ export const authService = {
     if (!auth.currentUser) return null;
     await auth.currentUser.reload();
     await saveWebsiteUserPresence(auth.currentUser, true);
+    await syncPublicProfile(auth.currentUser);
     return auth.currentUser;
   },
 
