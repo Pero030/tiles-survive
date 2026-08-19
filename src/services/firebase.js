@@ -2,6 +2,7 @@ import { initializeApp, getApp, getApps } from 'firebase/app';
 import { getAnalytics, isSupported } from 'firebase/analytics';
 import { getAuth } from 'firebase/auth';
 import { doc, getFirestore, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import { getStorage } from 'firebase/storage';
 
 export const firebaseConfig = {
@@ -17,6 +18,7 @@ export const firebaseConfig = {
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const auth = getAuth(app);
+export const functions = getFunctions(app, 'us-central1');
 export const storage = getStorage(app);
 const contentOverridesRef = doc(db, 'admin', 'contentOverrides');
 const legacyContentOverridesRef = doc(db, 'siteContent', 'contentOverrides');
