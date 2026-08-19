@@ -9,6 +9,7 @@ const cleanPublicProfile = (profile) => ({
   gameServer: String(profile.gameServer || '').replace(/\D/g, '').slice(0, 6),
   allianceName: String(profile.allianceName || '').trim().slice(0, 48),
   allianceTag: String(profile.allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8),
+  photoURL: String(profile.photoURL || '').trim(),
   updatedAt: serverTimestamp(),
 });
 
