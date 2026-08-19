@@ -9,17 +9,24 @@ let trackedUid = '';
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
-const buildUserRecord = (user, online) => ({
-  uid: user.uid,
-  email: normalizeEmail(user.email),
-  displayName: user.displayName || '',
-  photoURL: user.photoURL || '',
-  providerId: user.providerData?.[0]?.providerId || 'password',
-  emailVerified: Boolean(user.emailVerified),
-  online,
-  lastSeenAt: serverTimestamp(),
-  updatedAt: serverTimestamp(),
-});
+const buildUserRecord = (user, online) => {
+  const record = {
+    uid: user.uid,
+    email: normalizeEmail(user.email),
+    displayName: user.displayName || '',
+    providerId: user.providerData?.[0]?.providerId || 'password',
+    emailVerified: Boolean(user.emailVerified),
+    online,
+    lastSeenAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+
+  if (user.photoURL) {
+    record.photoURL = user.photoURL;
+  }
+
+  return record;
+};
 
 export const saveWebsiteUserPresence = async (user, online = true) => {
   if (!user?.uid || !isFirebaseConfigured()) {
