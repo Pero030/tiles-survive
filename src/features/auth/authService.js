@@ -200,6 +200,40 @@ export const authService = {
     };
   },
 
+  async updateProfileSettings({ displayName, gameServer, allianceName, allianceTag }) {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
+    }
+
+    const normalizedDisplayName = String(displayName || '').trim();
+    const normalizedServer = normalizeGameServer(gameServer);
+    const normalizedAllianceName = normalizeAllianceName(allianceName);
+    const normalizedAllianceTag = normalizeAllianceTag(allianceTag);
+
+    await updateProfile(auth.currentUser, { displayName: normalizedDisplayName });
+    await setDoc(doc(db, 'users', auth.currentUser.uid), {
+      displayName: normalizedDisplayName,
+      gameServer: normalizedServer,
+      allianceName: normalizedAllianceName,
+      allianceTag: normalizedAllianceTag,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+    await saveWebsiteUserPresence(auth.currentUser, true);
+    await syncPublicProfile(auth.currentUser, {
+      displayName: normalizedDisplayName,
+      gameServer: normalizedServer,
+      allianceName: normalizedAllianceName,
+      allianceTag: normalizedAllianceTag,
+    });
+
+    return {
+      user: auth.currentUser,
+      gameServer: normalizedServer,
+      allianceName: normalizedAllianceName,
+      allianceTag: normalizedAllianceTag,
+    };
+  },
+
   async updateUserPassword(password) {
     if (!auth.currentUser) {
       throw new Error('No signed in user found.');
