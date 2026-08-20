@@ -19,6 +19,7 @@ const allowedFunctionOrigins = [
   /^http:\/\/127\.0\.0\.1:\d+$/,
   /^http:\/\/localhost:\d+$/,
 ];
+const cleanConfigValue = (value) => String(value || '').trim();
 
 const normalizeLanguageCode = (languageCode) => String(languageCode || '')
   .trim()
@@ -54,10 +55,10 @@ const restoreMentions = (text, mentions) => mentions.reduce(
 
 const getR2Client = () => new S3Client({
   region: 'auto',
-  endpoint: `https://${r2AccountId.value()}.r2.cloudflarestorage.com`,
+  endpoint: `https://${cleanConfigValue(r2AccountId.value())}.r2.cloudflarestorage.com`,
   credentials: {
-    accessKeyId: r2AccessKeyId.value(),
-    secretAccessKey: r2SecretAccessKey.value(),
+    accessKeyId: cleanConfigValue(r2AccessKeyId.value()),
+    secretAccessKey: cleanConfigValue(r2SecretAccessKey.value()),
   },
 });
 
@@ -177,14 +178,14 @@ exports.createProfileImageUpload = onCall({
   const uploadUrl = await getSignedUrl(
     getR2Client(),
     new PutObjectCommand({
-      Bucket: r2Bucket.value(),
+      Bucket: cleanConfigValue(r2Bucket.value()),
       Key: key,
       ContentType: contentType,
       CacheControl: 'public, max-age=31536000, immutable',
     }),
     { expiresIn: 120 },
   );
-  const publicBaseUrl = r2PublicUrl.value().replace(/\/+$/, '');
+  const publicBaseUrl = cleanConfigValue(r2PublicUrl.value()).replace(/\/+$/, '');
   const publicUrl = `${publicBaseUrl}/${key.split('/').map(encodeURIComponent).join('/')}`;
 
   return { uploadUrl, publicUrl };
