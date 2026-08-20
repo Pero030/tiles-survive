@@ -27,7 +27,11 @@ const accountMissingError = () => new Error('Account does not exist. Please use 
 const normalizeGameServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
 const normalizeAllianceName = (allianceName) => String(allianceName || '').trim().slice(0, 48);
 const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
-const normalizePhotoURL = (photoURL) => String(photoURL || '').trim();
+const isPersistablePhotoURL = (photoURL) => /^https:\/\//i.test(String(photoURL || '').trim());
+const normalizePhotoURL = (photoURL) => {
+  const value = String(photoURL || '').trim();
+  return isPersistablePhotoURL(value) ? value : '';
+};
 
 const getUserProfileSnapshot = async (uid, collectionName) => {
   if (!uid || !isFirebaseConfigured()) {
@@ -258,7 +262,10 @@ export const authService = {
       getUserProfileSnapshot(auth.currentUser.uid, 'users'),
       getUserProfileSnapshot(auth.currentUser.uid, 'publicProfiles'),
     ]);
-    const photoURL = normalizePhotoURL(nextPhotoURL || auth.currentUser.photoURL || privateProfile.photoURL || publicProfile.photoURL);
+    const photoURL = normalizePhotoURL(nextPhotoURL)
+      || normalizePhotoURL(auth.currentUser.photoURL)
+      || normalizePhotoURL(privateProfile.photoURL)
+      || normalizePhotoURL(publicProfile.photoURL);
 
     await updateProfile(auth.currentUser, { displayName: normalizedDisplayName, photoURL });
     await setDoc(doc(db, 'users', auth.currentUser.uid), {
@@ -300,7 +307,11 @@ export const authService = {
       throw new Error('Profile image must be smaller than 3 MB.');
     }
 
-    const photoURL = await uploadProfileImageToR2({ file });
+    const photoURL = normalizePhotoURL(await uploadProfileImageToR2({ file }));
+    if (!photoURL) {
+      throw new Error('Profile image upload did not return a valid public image URL.');
+    }
+
     await updateProfile(auth.currentUser, { photoURL });
     await setDoc(doc(db, 'users', auth.currentUser.uid), {
       photoURL,
