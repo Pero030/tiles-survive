@@ -71,3 +71,24 @@ When a user uploads an avatar, the website asks Firebase for a short-lived signe
 users/{uid}.photoURL
 publicProfiles/{uid}.photoURL
 ```
+## R2 CORS for browser uploads
+
+In Cloudflare R2, open the bucket, then add this CORS policy under the bucket CORS settings:
+
+```json
+[
+  {
+    "AllowedOrigins": [
+      "https://pero030.github.io",
+      "http://127.0.0.1:5173",
+      "http://localhost:5173"
+    ],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["Content-Type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+The Firebase callable `createProfileImageUpload` also allows these same origins, so GitHub Pages and local development can request signed upload URLs.
