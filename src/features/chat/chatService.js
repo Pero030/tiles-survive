@@ -318,7 +318,7 @@ export const chatService = {
     }
 
     const language = normalizeLanguageCode(targetLanguage);
-    if (!roomId || !messageId || language === 'en') {
+    if (!roomId || !messageId || !language) {
       return null;
     }
 
@@ -327,3 +327,4 @@ export const chatService = {
     return result.data?.translatedText || null;
   },
 };
+
