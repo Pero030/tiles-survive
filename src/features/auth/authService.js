@@ -1,4 +1,5 @@
 import {
+  EmailAuthProvider,
   GoogleAuthProvider,
   OAuthProvider,
   createUserWithEmailAndPassword,
@@ -6,6 +7,7 @@ import {
   getAdditionalUserInfo,
   getRedirectResult,
   onAuthStateChanged,
+  reauthenticateWithCredential,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -13,6 +15,7 @@ import {
   signOut,
   updatePassword,
   updateProfile,
+  verifyBeforeUpdateEmail,
 } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
@@ -24,6 +27,19 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
 const accountMissingError = () => new Error('Account does not exist. Please use Register first.');
 
+const reauthenticateEmailUser = async (password) => {
+  const user = auth.currentUser;
+  if (!user?.email) {
+    throw new Error('Password confirmation is only available for email accounts.');
+  }
+
+  if (!password) {
+    throw new Error('Please enter your current password.');
+  }
+
+  const credential = EmailAuthProvider.credential(user.email, password);
+  await reauthenticateWithCredential(user, credential);
+};
 const normalizeGameServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
 const normalizeAllianceName = (allianceName) => String(allianceName || '').trim().slice(0, 48);
 const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
@@ -326,12 +342,31 @@ export const authService = {
     };
   },
 
-  async updateUserPassword(password) {
+  async updateUserEmail(email, currentPassword) {
     if (!auth.currentUser) {
       throw new Error('No signed in user found.');
     }
 
-    await updatePassword(auth.currentUser, password);
+    const normalizedEmail = normalizeEmail(email);
+    if (!normalizedEmail) {
+      throw new Error('Please enter a valid email address.');
+    }
+
+    await reauthenticateEmailUser(currentPassword);
+    await verifyBeforeUpdateEmail(auth.currentUser, normalizedEmail);
+    await saveWebsiteUserPresence(auth.currentUser, true);
+  },
+  async updateUserPassword(currentPassword, nextPassword) {
+    if (!auth.currentUser) {
+      throw new Error('No signed in user found.');
+    }
+
+    if (!nextPassword || nextPassword.length < 6) {
+      throw new Error('Password must have at least 6 characters.');
+    }
+
+    await reauthenticateEmailUser(currentPassword);
+    await updatePassword(auth.currentUser, nextPassword);
     await saveWebsiteUserPresence(auth.currentUser, true);
   },
   async completeRedirectLogin() {
