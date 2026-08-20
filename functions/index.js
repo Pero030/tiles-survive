@@ -14,6 +14,11 @@ const r2Bucket = defineString('R2_BUCKET');
 const r2PublicUrl = defineString('R2_PUBLIC_URL');
 const r2AccessKeyId = defineSecret('R2_ACCESS_KEY_ID');
 const r2SecretAccessKey = defineSecret('R2_SECRET_ACCESS_KEY');
+const allowedFunctionOrigins = [
+  'https://pero030.github.io',
+  /^http:\/\/127\.0\.0\.1:\d+$/,
+  /^http:\/\/localhost:\d+$/,
+];
 
 const normalizeLanguageCode = (languageCode) => String(languageCode || '')
   .trim()
@@ -91,7 +96,7 @@ const assertCanReadRoom = async ({ roomId, uid }) => {
   throw new HttpsError('permission-denied', 'You cannot read this chat.');
 };
 
-exports.translateChatMessage = onCall({ region: 'us-central1' }, async (request) => {
+exports.translateChatMessage = onCall({ region: 'us-central1', cors: allowedFunctionOrigins }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) {
     throw new HttpsError('unauthenticated', 'Sign in before translating chat messages.');
@@ -148,6 +153,7 @@ exports.translateChatMessage = onCall({ region: 'us-central1' }, async (request)
 
 exports.createProfileImageUpload = onCall({
   region: 'us-central1',
+  cors: allowedFunctionOrigins,
   secrets: [r2AccessKeyId, r2SecretAccessKey],
 }, async (request) => {
   const uid = request.auth?.uid;
