@@ -8,7 +8,13 @@ const { defineSecret, defineString } = require('firebase-functions/params');
 admin.initializeApp();
 
 const db = admin.firestore();
-const translate = new Translate();
+let translateClient;
+const getTranslateClient = () => {
+  if (!translateClient) {
+    translateClient = new Translate();
+  }
+  return translateClient;
+};
 const r2AccountId = defineString('R2_ACCOUNT_ID');
 const r2Bucket = defineString('R2_BUCKET');
 const r2PublicUrl = defineString('R2_PUBLIC_URL');
@@ -81,17 +87,32 @@ const assertCanReadRoom = async ({ roomId, uid }) => {
     throw new HttpsError('permission-denied', 'You are not a member of this private chat.');
   }
 
-  if (room.type === 'alliance') {
+  if (room.type === 'alliance' || room.type === 'allianceSub') {
     const profileSnapshot = await db.doc(`users/${uid}`).get();
     const profile = profileSnapshot.exists ? profileSnapshot.data() || {} : {};
     const sameServer = normalizeServer(profile.gameServer) === normalizeServer(room.gameServer);
     const sameTag = normalizeAllianceTag(profile.allianceTag) === normalizeAllianceTag(room.allianceTag);
+    let isApprovedMember = room.memberUids?.[uid] === true;
 
-    if (sameServer && sameTag) {
+    if (!isApprovedMember && room.type === 'allianceSub' && room.parentRoomId) {
+      const parentSnapshot = await db.doc(`chatRooms/${room.parentRoomId}`).get();
+      const parentRoom = parentSnapshot.exists ? parentSnapshot.data() || {} : {};
+      isApprovedMember = parentRoom.memberUids?.[uid] === true;
+    }
+
+    if (sameServer && sameTag && isApprovedMember) {
+      if (room.type === 'allianceSub' && room.audience === 'leaders') {
+        const role = room.memberRoles?.[uid];
+        const isLeader = room.ownerUid === uid || role === 'owner' || role === 'admin';
+        if (!isLeader) {
+          throw new HttpsError('permission-denied', 'This leader chat is restricted.');
+        }
+      }
+
       return;
     }
 
-    throw new HttpsError('permission-denied', 'You are not a member of this alliance chat.');
+    throw new HttpsError('permission-denied', 'You are not an approved member of this alliance chat.');
   }
 
   throw new HttpsError('permission-denied', 'You cannot read this chat.');
@@ -131,7 +152,7 @@ exports.translateChatMessage = onCall({ region: 'us-central1', cors: allowedFunc
   }
 
   const { protectedText, mentions } = protectMentions(originalText);
-  const [translatedText] = await translate.translate(protectedText, {
+  const [translatedText] = await getTranslateClient().translate(protectedText, {
     from: message.language || undefined,
     to: targetLanguage,
     format: 'text',
@@ -186,4 +207,10 @@ exports.createProfileImageUpload = onCall({
 
   return { uploadUrl, publicUrl };
 });
+
+
+
+
+
+
 
