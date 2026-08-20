@@ -1,4 +1,4 @@
-import { LockKeyhole, MessageCircle, Plus, Search, Send, ShieldCheck, SmilePlus, Trash2, UserPlus, Users } from 'lucide-react';
+import { LockKeyhole, MessageCircle, Plus, Search, Send, Settings, ShieldCheck, SmilePlus, Trash2, UserPlus, Users } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authService } from '../features/auth/authService.js';
@@ -141,6 +141,7 @@ export default function ChatPage() {
   const [user, setUser] = useState(() => authService.getCurrentUser());
   const [profile, setProfile] = useState({});
   const [privateRooms, setPrivateRooms] = useState([]);
+  const [allianceSubRooms, setAllianceSubRooms] = useState([]);
   const [publicRoomSnapshots, setPublicRoomSnapshots] = useState({});
   const [activeRoomId, setActiveRoomId] = useState('global');
   const [messages, setMessages] = useState([]);
@@ -158,6 +159,10 @@ export default function ChatPage() {
   const [selectedUserIds, setSelectedUserIds] = useState([]);
   const [inviteUserIds, setInviteUserIds] = useState([]);
   const [userSearch, setUserSearch] = useState('');
+  const [allianceAction, setAllianceAction] = useState(false);
+  const [allianceInviteCode, setAllianceInviteCode] = useState('');
+  const [roomCategory, setRoomCategory] = useState('alliance');
+  const [alliancePanel, setAlliancePanel] = useState('');
   const listRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -167,6 +172,7 @@ export default function ChatPage() {
     if (!user) {
       setProfile({});
       setPrivateRooms([]);
+      setAllianceSubRooms([]);
       setPublicRoomSnapshots({});
       setMessages([]);
       setActiveRoomId('global');
@@ -219,24 +225,66 @@ export default function ChatPage() {
   const globalRoom = useMemo(() => chatService.getGlobalRoom(), []);
   const allianceRoom = useMemo(() => chatService.getAllianceRoomForProfile(profile), [profile?.gameServer, profile?.allianceTag]);
   const liveGlobalRoom = publicRoomSnapshots.global ? { ...globalRoom, ...publicRoomSnapshots.global } : globalRoom;
-  const liveAllianceRoom = allianceRoom && publicRoomSnapshots[allianceRoom.id]
-    ? { ...allianceRoom, ...publicRoomSnapshots[allianceRoom.id] }
-    : allianceRoom;
+  const allianceRoomSnapshot = allianceRoom ? publicRoomSnapshots[allianceRoom.id] : null;
+  const liveAllianceRoom = allianceRoomSnapshot ? { ...allianceRoom, ...allianceRoomSnapshot } : null;
   const rooms = useMemo(() => [
     liveGlobalRoom,
-    ...(liveAllianceRoom ? [liveAllianceRoom] : []),
+    ...(liveAllianceRoom ? [liveAllianceRoom, ...allianceSubRooms] : []),
     ...privateRooms,
-  ], [liveGlobalRoom, liveAllianceRoom, privateRooms]);
+  ], [liveGlobalRoom, liveAllianceRoom, allianceSubRooms, privateRooms]);
   const activeRoom = rooms.find((room) => room.id === activeRoomId) || liveGlobalRoom;
+  const allianceAccessState = chatService.getAllianceAccessState(liveAllianceRoom || allianceRoom, user, profile);
+  const canUseActiveRoom = chatService.canUseRoom(activeRoom, user, profile);
   const canInviteActiveRoom = chatService.canInviteToRoom(activeRoom, user);
   const canDeleteActiveRoom = chatService.canDeleteRoom(activeRoom, user);
+  const allianceManagementRoom = (activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub') && liveAllianceRoom ? liveAllianceRoom : activeRoom;
+  const canManageAllianceActiveRoom = chatService.canManageAllianceRoom(allianceManagementRoom, user);
+  const canChangeAllianceRoles = chatService.canChangeAllianceRoles(allianceManagementRoom, user);
+  const canCreateAllianceSubRoom = chatService.canCreateAllianceSubRoom(liveAllianceRoom, user);
+  const allianceSubRoomLimitReached = allianceSubRooms.length >= 5;
+  const isAllianceRoomActive = activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub';
+  const isMainAllianceRoomActive = activeRoom.type === 'alliance';
+  const isAllianceSubRoomActive = activeRoom.type === 'allianceSub';
 
   useEffect(() => {
     if (!rooms.some((room) => room.id === activeRoomId)) {
       setActiveRoomId('global');
     }
   }, [activeRoomId, rooms]);
+  useEffect(() => {
+    if (roomCategory === 'alliance' && liveAllianceRoom && activeRoom.type !== 'alliance' && activeRoom.type !== 'allianceSub') {
+      setActiveRoomId(liveAllianceRoom.id);
+      return;
+    }
 
+    if (roomCategory === 'global' && activeRoomId !== 'global') {
+      setActiveRoomId('global');
+      return;
+    }
+
+    if (roomCategory === 'private' && activeRoom.type !== 'private') {
+      const firstPrivateRoom = privateRooms[0];
+      if (firstPrivateRoom) {
+        setActiveRoomId(firstPrivateRoom.id);
+      }
+    }
+  }, [activeRoom.type, activeRoomId, liveAllianceRoom, privateRooms, roomCategory]);
+
+  useEffect(() => {
+    if (!user || !liveAllianceRoom?.id) {
+      setAllianceSubRooms([]);
+      return undefined;
+    }
+
+    return chatService.subscribeToAllianceSubRooms(
+      liveAllianceRoom.id,
+      (rooms) => {
+        setAllianceSubRooms(rooms);
+        setStatus('');
+      },
+      (error) => setStatus(error.message || 'Could not load alliance sub chats.'),
+    );
+  }, [user, liveAllianceRoom?.id]);
   useEffect(() => {
     if (!user) {
       return undefined;
@@ -253,7 +301,7 @@ export default function ChatPage() {
   }, [user, allianceRoom?.id]);
 
   useEffect(() => {
-    if (!user || !activeRoom?.id) {
+    if (!user || !activeRoom?.id || !canUseActiveRoom) {
       setMessages([]);
       return undefined;
     }
@@ -266,7 +314,7 @@ export default function ChatPage() {
       },
       (error) => setStatus(error.message || 'Could not load chat messages.'),
     );
-  }, [user, activeRoom?.id]);
+  }, [user, activeRoom?.id, canUseActiveRoom]);
 
   useEffect(() => {
     if (!user?.uid || !activeRoom?.id) {
@@ -364,11 +412,8 @@ export default function ChatPage() {
       return allVisibleProfiles;
     }
 
-    if (activeRoom.type === 'alliance') {
-      return allVisibleProfiles.filter((item) => (
-        String(item.gameServer || '') === String(activeRoom.gameServer || '')
-        && String(item.allianceTag || '').toUpperCase() === String(activeRoom.allianceTag || '').toUpperCase()
-      ));
+    if (activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub') {
+      return allVisibleProfiles.filter((item) => activeRoom.memberUids?.[item.uid]);
     }
 
     if (activeRoom.type === 'private') {
@@ -387,6 +432,11 @@ export default function ChatPage() {
       .filter((item) => cleanMentionName(item.displayName).toLowerCase().startsWith(mentionQuery))
       .slice(0, 8);
   }, [activeRoomMemberProfiles, mentionQuery]);
+  const pendingAllianceRequests = useMemo(() => Object.values(allianceManagementRoom.joinRequests || {})
+    .filter((request) => request?.status === 'pending'), [allianceManagementRoom.joinRequests]);
+  const allianceMemberProfiles = useMemo(() => allVisibleProfiles
+    .filter((item) => allianceManagementRoom.memberUids?.[item.uid]), [allianceManagementRoom.memberUids, allVisibleProfiles]);
+
   const filteredProfiles = useMemo(() => {
     const searchValue = userSearch.trim().toLowerCase();
     const profiles = searchValue
@@ -394,11 +444,136 @@ export default function ChatPage() {
       : publicProfiles;
     return profiles.slice(0, 18);
   }, [userSearch, publicProfiles]);
+  const allianceInviteProfiles = useMemo(() => {
+    const searchValue = userSearch.trim().toLowerCase();
+    const server = String(allianceManagementRoom.gameServer || '').trim();
+    const tag = String(allianceManagementRoom.allianceTag || '').trim().toUpperCase();
+    const profiles = publicProfiles.filter((item) => {
+      const sameServer = String(item.gameServer || '').trim() === server;
+      const sameTag = String(item.allianceTag || '').trim().toUpperCase() === tag;
+      const isMember = allianceManagementRoom.memberUids?.[item.uid] === true;
+      const matchesSearch = !searchValue || getSearchText(item).includes(searchValue);
+      return sameServer && sameTag && !isMember && matchesSearch;
+    });
+    return profiles.slice(0, 18);
+  }, [allianceManagementRoom, publicProfiles, userSearch]);
 
   const toggleSelectedUser = (uid, targetSetter) => {
     targetSetter((current) => current.includes(uid) ? current.filter((item) => item !== uid) : [...current, uid]);
   };
 
+  const handleCreateAllianceChat = async () => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      const roomId = await chatService.createAllianceChat(profile);
+      setActiveRoomId(roomId);
+      setStatus('Alliance chat created. You are the owner for this chat.');
+    } catch (error) {
+      setStatus(error.message || 'Alliance chat could not be created.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleCreateAllianceSubRoom = async () => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      const roomId = await chatService.createAllianceSubRoom(liveAllianceRoom);
+      setAllianceSubRooms((current) => current.some((room) => room.id === roomId)
+        ? current
+        : [...current, {
+          ...liveAllianceRoom,
+          id: roomId,
+          type: 'allianceSub',
+          parentRoomId: liveAllianceRoom.id,
+          title: `${liveAllianceRoom.title} - Chat ${current.length + 1}`,
+          order: current.length + 1,
+        }]);
+      setActiveRoomId(roomId);
+      setStatus('Alliance sub chat created.');
+    } catch (error) {
+      setStatus(error.message || 'Alliance sub chat could not be created.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+  const handleRequestAllianceAccess = async () => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.requestAllianceAccess(activeRoom, profile);
+      setStatus('Join request sent to the alliance chat admins.');
+    } catch (error) {
+      setStatus(error.message || 'Join request could not be sent.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleApproveAllianceRequest = async (uid) => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.approveAllianceRequest(allianceManagementRoom.id, uid);
+      setStatus('Alliance member approved.');
+    } catch (error) {
+      setStatus(error.message || 'Request could not be approved.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleRejectAllianceRequest = async (uid) => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.rejectAllianceRequest(allianceManagementRoom.id, uid);
+      setStatus('Join request rejected.');
+    } catch (error) {
+      setStatus(error.message || 'Request could not be rejected.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleSetAllianceRole = async (uid, role) => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.setAllianceMemberRole(allianceManagementRoom.id, uid, role);
+      setStatus(role === 'admin' ? 'Member is now an alliance chat admin.' : 'Member role updated.');
+    } catch (error) {
+      setStatus(error.message || 'Role could not be changed.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleRemoveAllianceMember = async (uid) => {
+    const member = allianceMemberProfiles.find((item) => item.uid === uid);
+    const confirmed = window.confirm(`Remove ${member?.displayName || 'this member'} from this alliance chat?`);
+    if (!confirmed) return;
+
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.removeAllianceMember(allianceManagementRoom.id, uid);
+      setStatus('Member removed from alliance chat.');
+    } catch (error) {
+      setStatus(error.message || 'Member could not be removed.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
   const handleCreatePrivateRoom = async (event) => {
     event.preventDefault();
     setStatus('');
@@ -430,6 +605,68 @@ export default function ChatPage() {
       setStatus('Users added to private chat.');
     } catch (error) {
       setStatus(error.message || 'Users could not be added.');
+    }
+  };
+
+  const handleAddAllianceMembers = async () => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.addAllianceMembers(allianceManagementRoom.id, inviteUserIds);
+      setInviteUserIds([]);
+      setStatus('Users added to alliance chat.');
+    } catch (error) {
+      setStatus(error.message || 'Users could not be added to alliance chat.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleGenerateAllianceInviteCode = async () => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      const code = await chatService.generateAllianceInviteCode(allianceManagementRoom.id);
+      setStatus('Invite code created: ' + code);
+    } catch (error) {
+      setStatus(error.message || 'Invite code could not be created.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleJoinAllianceByInviteCode = async (event) => {
+    event.preventDefault();
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      const roomId = await chatService.joinAllianceByInviteCode(allianceInviteCode, profile);
+      setAllianceInviteCode('');
+      setRoomCategory('alliance');
+      setActiveRoomId(roomId);
+      setStatus('Alliance chat joined.');
+    } catch (error) {
+      setStatus(error.message || 'Invite code could not be used.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleSetAllianceSubRoomAudience = async (audience) => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.setAllianceSubRoomAudience(activeRoom.id, audience);
+      setAllianceSubRooms((current) => current.map((room) => room.id === activeRoom.id ? { ...room, audience } : room));
+      setStatus(audience === 'leaders' ? 'Sub chat is now a leader chat.' : 'Sub chat is now a member chat.');
+    } catch (error) {
+      setStatus(error.message || 'Sub chat setting could not be changed.');
+    } finally {
+      setAllianceAction(false);
     }
   };
 
@@ -499,6 +736,18 @@ export default function ChatPage() {
 
   const totalUnreadRooms = rooms.filter((room) => hasUnreadMessages(room)).length;
 
+  const handleSelectRoomCategory = (category) => {
+    setRoomCategory(category);
+
+    if (category === 'global') {
+      setActiveRoomId('global');
+    }
+
+    if (category === 'alliance' && liveAllianceRoom) {
+      setActiveRoomId(liveAllianceRoom.id);
+    }
+  };
+
   const getDisplayedMessageText = (message) => {
     if (message.uid === user.uid) {
       return message.text;
@@ -517,7 +766,7 @@ export default function ChatPage() {
 
   if (!user) {
     return (
-      <section className="page-shell page-top chat-page">
+      <section className="page-shell page-top chat-page notranslate" translate="no">
         <div className="chat-locked-panel">
           <span><ShieldCheck size={30} /></span>
           <h1>Alliance Chat</h1>
@@ -529,7 +778,7 @@ export default function ChatPage() {
   }
 
   return (
-    <section className="page-shell page-top chat-page">
+    <section className="page-shell page-top chat-page notranslate" translate="no">
       <div className="chat-shell chat-room-shell">
         <header className="chat-header">
           <span><MessageCircle size={28} /></span>
@@ -540,72 +789,144 @@ export default function ChatPage() {
           </div>
         </header>
 
+        <div className="chat-room-tabs" role="tablist" aria-label="Chat areas">
+          <button className={roomCategory === 'alliance' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('alliance')}>
+            <ShieldCheck size={20} />
+            <span>Allianz</span>
+          </button>
+          <button className={roomCategory === 'global' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('global')}>
+            <MessageCircle size={20} />
+            <span>Global</span>
+            {hasUnreadMessages(liveGlobalRoom) ? <strong>{'!'}</strong> : null}
+          </button>
+          <button className={roomCategory === 'private' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('private')}>
+            <LockKeyhole size={20} />
+            <span>Privat</span>
+            {privateRooms.some((room) => hasUnreadMessages(room)) ? <strong>{privateRooms.filter((room) => hasUnreadMessages(room)).length}</strong> : null}
+          </button>
+        </div>
         <div className="chat-room-layout">
           <aside className="chat-room-sidebar">
-            <div className="chat-room-group">
-              <h2>Rooms {totalUnreadRooms ? <span className="chat-room-total-badge">{totalUnreadRooms}</span> : null}</h2>
-              <button className={getRoomButtonClass(liveGlobalRoom)} type="button" onClick={() => setActiveRoomId('global')}>
-                <MessageCircle size={17} />
-                <span>Global</span>
-                <small>All signed-in users</small>
-                {hasUnreadMessages(liveGlobalRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
-              </button>
-              {allianceRoom ? (
-                <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => setActiveRoomId(allianceRoom.id)} translate="no">
-                  <ShieldCheck size={17} />
-                  <span>{allianceRoom.title}</span>
-                  <small>Your server and alliance tag</small>
-                  {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
+
+            {roomCategory === 'alliance' ? (
+              <div className="chat-room-group">
+                <h2>Alliance</h2>
+                {liveAllianceRoom ? (
+                  <>
+                    <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => setActiveRoomId(liveAllianceRoom.id)} translate="no">
+                      <ShieldCheck size={17} />
+                      <span>{liveAllianceRoom.title}</span>
+                      <small>{allianceAccessState === 'member' ? 'Approved members only' : allianceAccessState === 'pending' ? 'Request pending' : 'Approval required'}</small>
+                      {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
+                    </button>
+                    <div className="chat-alliance-subrooms">
+                      {allianceSubRooms.map((room) => (
+                        <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)} translate="no">
+                          <MessageCircle size={15} />
+                          <span>{room.title}</span>
+                          <small>Alliance sub chat</small>
+                          {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
+                        </button>
+                      ))}
+                      {canCreateAllianceSubRoom && !allianceSubRoomLimitReached ? (
+                        <button className="chat-add-subroom-button" type="button" onClick={handleCreateAllianceSubRoom} disabled={allianceAction} aria-label="Create alliance sub chat">
+                          <Plus size={34} />
+                        </button>
+                      ) : null}
+                      {canCreateAllianceSubRoom && allianceSubRoomLimitReached ? <small className="chat-subroom-limit">Maximum 5 sub chats</small> : null}
+                    </div>
+                  </>
+                ) : allianceRoom ? (
+                  <div className="chat-room-note">
+                    <strong translate="no">{allianceRoom.title}</strong>
+                    <span>Not created yet.</span>
+                    <button className="chat-room-inline-action" type="button" onClick={handleCreateAllianceChat} disabled={allianceAction}>
+                      {allianceAction ? 'Creating...' : 'Create alliance chat'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="chat-room-note">
+                    Add server and alliance tag in your profile to unlock Alliance chat.
+                  </div>
+                )}
+              </div>
+            ) : null}
+
+            {roomCategory === 'global' ? (
+              <div className="chat-room-group">
+                <h2>Global</h2>
+                <button className={getRoomButtonClass(liveGlobalRoom)} type="button" onClick={() => setActiveRoomId('global')}>
+                  <MessageCircle size={17} />
+                  <span>Global</span>
+                  <small>All signed-in users</small>
+                  {hasUnreadMessages(liveGlobalRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
                 </button>
-              ) : (
-                <div className="chat-room-note">
-                  Add server and alliance tag in your profile to unlock Alliance chat.
+              </div>
+            ) : null}
+
+            {roomCategory === 'private' ? (
+              <>
+                <div className="chat-room-group">
+                  <h2>Private</h2>
+                  {privateRooms.length ? privateRooms.map((room) => (
+                    <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)}>
+                      <LockKeyhole size={17} />
+                      <span>{room.title || 'Private Chat'}</span>
+                      <small>{room.memberCount || Object.keys(room.memberUids || {}).length || 1} members</small>
+                      {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
+                    </button>
+                  )) : <p className="chat-room-note">No private chats yet.</p>}
                 </div>
-              )}
-            </div>
 
-            <div className="chat-room-group">
-              <h2>Private chats</h2>
-              {privateRooms.length ? privateRooms.map((room) => (
-                <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)}>
-                  <LockKeyhole size={17} />
-                  <span>{room.title || 'Private Chat'}</span>
-                  <small>{room.memberCount || Object.keys(room.memberUids || {}).length || 1} members</small>
-                  {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
-                </button>
-              )) : <p className="chat-room-note">No private chats yet.</p>}
-            </div>
-
-            <form className="chat-private-builder" onSubmit={handleCreatePrivateRoom}>
-              <h2><Plus size={17} /> New private chat</h2>
-              <label htmlFor="private-chat-title">Name</label>
-              <input id="private-chat-title" value={privateTitle} onChange={(event) => setPrivateTitle(event.target.value)} placeholder="Strategy room" maxLength={60} />
-              <label htmlFor="private-chat-policy">Who can invite?</label>
-              <select id="private-chat-policy" value={invitePolicy} onChange={(event) => setInvitePolicy(event.target.value)}>
-                <option value="ownerOnly">Only creator</option>
-                <option value="allMembers">All members</option>
-              </select>
-              <UserPicker
-                filteredProfiles={filteredProfiles}
-                selectedUserIds={selectedUserIds}
-                setUserSearch={setUserSearch}
-                title="Invite users"
-                toggleUser={(uid) => toggleSelectedUser(uid, setSelectedUserIds)}
-                userSearch={userSearch}
-              />
-              <button className="user-auth-primary" type="submit" disabled={creatingRoom}>
-                <Plus size={17} /> {creatingRoom ? 'Creating...' : 'Create private chat'}
-              </button>
-            </form>
+                <form className="chat-private-builder" onSubmit={handleCreatePrivateRoom}>
+                  <h2><Plus size={17} /> New private chat</h2>
+                  <label htmlFor="private-chat-title">Name</label>
+                  <input id="private-chat-title" value={privateTitle} onChange={(event) => setPrivateTitle(event.target.value)} placeholder="Strategy room" maxLength={60} />
+                  <label htmlFor="private-chat-policy">Who can invite?</label>
+                  <select id="private-chat-policy" value={invitePolicy} onChange={(event) => setInvitePolicy(event.target.value)}>
+                    <option value="ownerOnly">Only creator</option>
+                    <option value="allMembers">All members</option>
+                  </select>
+                  <UserPicker
+                    filteredProfiles={filteredProfiles}
+                    selectedUserIds={selectedUserIds}
+                    setUserSearch={setUserSearch}
+                    title="Invite users"
+                    toggleUser={(uid) => toggleSelectedUser(uid, setSelectedUserIds)}
+                    userSearch={userSearch}
+                  />
+                  <button className="user-auth-primary" type="submit" disabled={creatingRoom}>
+                    <Plus size={17} /> {creatingRoom ? 'Creating...' : 'Create private chat'}
+                  </button>
+                </form>
+              </>
+            ) : null}
           </aside>
 
           <main className="chat-main-panel">
             <div className="chat-room-heading">
               <div>
-                <span>{activeRoom.type === 'global' ? 'Global chat' : activeRoom.type === 'alliance' ? 'Alliance chat' : 'Private chat'}</span>
-                <h2 translate={activeRoom.type === 'alliance' ? 'no' : undefined}>{activeRoom.title || 'Private Chat'}</h2>
+                <span>{activeRoom.type === 'global' ? 'Global chat' : activeRoom.type === 'alliance' ? 'Alliance chat' : activeRoom.type === 'allianceSub' ? 'Alliance sub chat' : 'Private chat'}</span>
+                <h2 translate={activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub' ? 'no' : undefined}>{activeRoom.title || 'Private Chat'}</h2>
               </div>
               <div className="chat-room-heading-actions">
+                {(activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub') && canUseActiveRoom ? (
+                  <>
+                    {canManageAllianceActiveRoom ? (
+                      <button className={alliancePanel === 'settings' ? 'chat-heading-action is-active' : 'chat-heading-action'} type="button" onClick={() => setAlliancePanel((current) => current === 'settings' ? '' : 'settings')}>
+                        <Settings size={16} /> Einstellungen
+                      </button>
+                    ) : null}
+                    {canManageAllianceActiveRoom && isMainAllianceRoomActive ? (
+                      <button className={alliancePanel === 'invite' ? 'chat-heading-action is-active' : 'chat-heading-action'} type="button" onClick={() => setAlliancePanel((current) => current === 'invite' ? '' : 'invite')}>
+                        <UserPlus size={16} /> Einladen
+                      </button>
+                    ) : null}
+                    <button className={alliancePanel === 'members' ? 'chat-heading-action is-active' : 'chat-heading-action'} type="button" onClick={() => setAlliancePanel((current) => current === 'members' ? '' : 'members')}>
+                      <Users size={16} /> Mitglieder
+                    </button>
+                  </>
+                ) : null}
                 {activeRoom.type === 'private' ? <small>{activeRoom.invitePolicy === 'allMembers' ? 'Members can invite' : 'Creator invites only'}</small> : null}
                 {canDeleteActiveRoom ? (
                   <button className="chat-delete-room-button" type="button" onClick={handleDeletePrivateRoom}>
@@ -614,6 +935,159 @@ export default function ChatPage() {
                 ) : null}
               </div>
             </div>
+
+            {(activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub') && canUseActiveRoom && alliancePanel ? (
+              <div className="chat-alliance-panel">
+                {alliancePanel === 'invite' && canManageAllianceActiveRoom ? (
+                  <>
+                    <div>
+                      <h3><UserPlus size={17} /> Einladen</h3>
+                      <p>Nutzer direkt hinzufügen, offene Anfragen freigeben oder einen Einladungscode erstellen.</p>
+                    </div>
+                    <div className="chat-invite-code-box" translate="no">
+                      <span>Einladungscode</span>
+                      <strong>{allianceManagementRoom.inviteCode || 'Noch keiner erstellt'}</strong>
+                      <button type="button" onClick={handleGenerateAllianceInviteCode} disabled={allianceAction}>Code erstellen</button>
+                    </div>
+                    <UserPicker
+                      filteredProfiles={allianceInviteProfiles}
+                      selectedUserIds={inviteUserIds}
+                      setUserSearch={setUserSearch}
+                      title="User einladen"
+                      toggleUser={(uid) => toggleSelectedUser(uid, setInviteUserIds)}
+                      userSearch={userSearch}
+                    />
+                    <button className="user-auth-secondary" type="button" onClick={handleAddAllianceMembers} disabled={!inviteUserIds.length || allianceAction}>
+                      <UserPlus size={17} /> Hinzufügen
+                    </button>
+                    <div className="chat-user-picker">
+                      <label>Beitrittsanfragen</label>
+                      <div className="chat-user-options">
+                        {pendingAllianceRequests.length ? pendingAllianceRequests.map((request) => (
+                          <div className="chat-member-row" key={request.uid} translate="no">
+                            <span>{request.senderLabel || request.displayName || 'Player'}</span>
+                            <button type="button" onClick={() => handleApproveAllianceRequest(request.uid)} disabled={allianceAction}>Freigeben</button>
+                            <button type="button" onClick={() => handleRejectAllianceRequest(request.uid)} disabled={allianceAction}>Ablehnen</button>
+                          </div>
+                        )) : <p>Keine offenen Anfragen.</p>}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+
+                {alliancePanel === 'settings' && canManageAllianceActiveRoom ? (
+                  <>
+                    <div>
+                      <h3><Settings size={17} /> Einstellungen</h3>
+                      <p>{isAllianceSubRoomActive ? 'Subchat-Typ einstellen. Rollen werden im Haupt-Allianzchat vergeben.' : 'Owner/Admin-Rechte vergeben oder Mitglieder entfernen.'}</p>
+                    </div>
+                    {isAllianceSubRoomActive ? (
+                      <div className="chat-subroom-setting">
+                        <label htmlFor="alliance-subroom-audience">Subchat Typ</label>
+                        <select id="alliance-subroom-audience" value={activeRoom.audience === 'leaders' ? 'leaders' : 'members'} onChange={(event) => handleSetAllianceSubRoomAudience(event.target.value)} disabled={allianceAction}>
+                          <option value="members">Mitglieder Chat</option>
+                          <option value="leaders">Leader Chat</option>
+                        </select>
+                      </div>
+                    ) : null}
+                    {isMainAllianceRoomActive ? (
+                      <div className="chat-user-picker">
+                        <label>Rechte</label>
+                        <div className="chat-user-options">
+                          {allianceMemberProfiles.length ? allianceMemberProfiles.map((member) => {
+                            const role = allianceManagementRoom.memberRoles?.[member.uid] || 'member';
+                            const isSystemOwner = allianceManagementRoom.ownerUid === member.uid;
+                            return (
+                              <div className="chat-member-row" key={member.uid} translate="no">
+                                <span>{formatUserOption(member)} - {isSystemOwner ? 'owner' : role}</span>
+                                {canChangeAllianceRoles && !isSystemOwner ? (
+                                  <>
+                                    <button type="button" onClick={() => handleSetAllianceRole(member.uid, role === 'owner' ? 'member' : 'owner')} disabled={allianceAction}>
+                                      {role === 'owner' ? 'Owner entfernen' : 'Owner geben'}
+                                    </button>
+                                    <button type="button" onClick={() => handleSetAllianceRole(member.uid, role === 'admin' ? 'member' : 'admin')} disabled={allianceAction}>
+                                      {role === 'admin' ? 'Admin entfernen' : 'Admin geben'}
+                                    </button>
+                                  </>
+                                ) : null}
+                                {!isSystemOwner ? <button type="button" onClick={() => handleRemoveAllianceMember(member.uid)} disabled={allianceAction}>Entfernen</button> : null}
+                              </div>
+                            );
+                          }) : <p>Noch keine Mitglieder geladen.</p>}
+                          {allianceMemberProfiles.length > 0 && allianceMemberProfiles.every((member) => allianceManagementRoom.ownerUid === member.uid) ? (
+                            <p>Es gibt noch kein weiteres Mitglied, dem du Owner/Admin geben kannst. Lade erst jemanden ein oder gib eine Beitrittsanfrage frei.</p>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+
+                {alliancePanel === 'members' ? (
+                  <>
+                    <div>
+                      <h3><Users size={17} /> Mitglieder</h3>
+                      <p>Freigegebene Mitglieder.</p>
+                    </div>
+                    <div className="chat-member-list" translate="no">
+                      {allianceMemberProfiles.length ? allianceMemberProfiles.map((member) => (
+                        <span className="chat-member-pill" key={member.uid}>
+                          <span className={member.photoURL ? 'chat-member-pill-avatar has-photo' : 'chat-member-pill-avatar'}>
+                            {member.photoURL ? <img src={member.photoURL} alt="" /> : String(member.displayName || 'P').trim().slice(0, 1).toUpperCase()}
+                          </span>
+                          <strong>{member.displayName || 'Player'}</strong>
+                        </span>
+                      )) : <span>Noch keine Mitglieder geladen.</span>}
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+
+            {(activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub') && !canUseActiveRoom ? (
+              <div className="chat-invite-panel">
+                <div>
+                  <h3><ShieldCheck size={17} /> Protected alliance chat</h3>
+                  <p>
+                    {allianceAccessState === 'canCreate'
+                      ? 'This alliance chat does not exist yet. Create it only if you should manage access for this alliance.'
+                      : allianceAccessState === 'pending'
+                        ? 'Your join request is waiting for an alliance chat owner or admin.'
+                        : allianceAccessState === 'profileMismatch'
+                          ? 'Your profile server or alliance tag does not match this chat.'
+                          : 'Only approved members can read or write in this alliance chat.'}
+                  </p>
+                </div>
+                {allianceAccessState === 'canCreate' ? (
+                  <button className="user-auth-primary" type="button" onClick={handleCreateAllianceChat} disabled={allianceAction}>
+                    <ShieldCheck size={17} /> {allianceAction ? 'Creating...' : 'Create alliance chat'}
+                  </button>
+                ) : null}
+                {allianceAccessState === 'canRequest' ? (
+                  <button className="user-auth-primary" type="button" onClick={handleRequestAllianceAccess} disabled={allianceAction}>
+                    <UserPlus size={17} /> {allianceAction ? 'Sending...' : 'Request access'}
+                  </button>
+                ) : null}
+                {allianceAccessState !== 'canCreate' ? (
+                  <form className="chat-invite-code-form" onSubmit={handleJoinAllianceByInviteCode}>
+                    <label htmlFor="alliance-invite-code">Einladungscode</label>
+                    <div>
+                      <input
+                        id="alliance-invite-code"
+                        maxLength={12}
+                        onChange={(event) => setAllianceInviteCode(event.target.value.toUpperCase())}
+                        placeholder="CODE"
+                        type="text"
+                        value={allianceInviteCode}
+                      />
+                      <button className="user-auth-secondary" type="submit" disabled={!allianceInviteCode.trim() || allianceAction}>
+                        Beitreten
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+              </div>
+            ) : null}
 
             {activeRoom.type === 'private' && canInviteActiveRoom ? (
               <div className="chat-invite-panel">
@@ -635,7 +1109,7 @@ export default function ChatPage() {
               </div>
             ) : null}
 
-            <div className="chat-message-list" ref={listRef} aria-live="polite">
+            {canUseActiveRoom ? <div className="chat-message-list" ref={listRef} aria-live="polite">
               {messages.length ? messages.map((message) => (
                 <article className={message.uid === user.uid ? 'chat-message is-own' : 'chat-message'} key={message.id}>
                   <div className={getMessagePhotoURL(message) ? 'chat-message-avatar has-photo' : 'chat-message-avatar'} translate="no">
@@ -655,11 +1129,11 @@ export default function ChatPage() {
                   <p>Start the first conversation in this room.</p>
                 </div>
               )}
-            </div>
+            </div> : null}
 
             {status ? <strong className="chat-status">{status}</strong> : null}
 
-            <form className="chat-compose" onSubmit={handleSubmit}>
+            {canUseActiveRoom ? <form className="chat-compose" onSubmit={handleSubmit}>
               <label className="sr-only" htmlFor="chat-message">Message</label>
               <div className="chat-compose-field">
                 <textarea
@@ -698,11 +1172,33 @@ export default function ChatPage() {
               <button className="user-auth-primary" type="submit" disabled={sending || !trimmedDraft}>
                 <Send size={18} /> {sending ? 'Sending...' : 'Send'}
               </button>
-            </form>
+            </form> : null}
           </main>
         </div>
       </div>
     </section>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
