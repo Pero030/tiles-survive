@@ -111,10 +111,6 @@ exports.translateChatMessage = onCall({ region: 'us-central1', cors: allowedFunc
     throw new HttpsError('invalid-argument', 'Room, message, and target language are required.');
   }
 
-  if (targetLanguage === 'en') {
-    return { translatedText: null, targetLanguage };
-  }
-
   await assertCanReadRoom({ roomId, uid });
 
   const messageRef = db.doc(`chatRooms/${roomId}/messages/${messageId}`);
@@ -190,3 +186,4 @@ exports.createProfileImageUpload = onCall({
 
   return { uploadUrl, publicUrl };
 });
+
