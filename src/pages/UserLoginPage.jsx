@@ -4,6 +4,10 @@ import { authService } from '../features/auth/authService.js';
 import { normalizeAdminEmail, subscribeToAdminAccess } from '../services/adminAccess.js';
 
 const providerErrorHelp = 'Check that this sign-in provider is enabled in Firebase Authentication.';
+const getPersistedPhotoURL = (photoURL) => {
+  const value = String(photoURL || '').trim();
+  return /^https:\/\//i.test(value) ? value : '';
+};
 
 const GoogleMark = () => (
   <svg aria-hidden="true" className="google-provider-mark" viewBox="0 0 24 24">
@@ -59,7 +63,7 @@ export default function UserLoginPage() {
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
     setDisplayName(nextUser?.displayName || '');
-    setPhotoURL(nextUser?.photoURL || '');
+    setPhotoURL(getPersistedPhotoURL(nextUser?.photoURL));
     if (!nextUser) {
       setPhotoURL('');
       setGameServer('');
@@ -84,7 +88,7 @@ export default function UserLoginPage() {
           setGameServer(profile?.gameServer || '');
           setAllianceName(profile?.allianceName || '');
           setAllianceTag(profile?.allianceTag || '');
-          setPhotoURL(profile?.photoURL || user.photoURL || '');
+          setPhotoURL(getPersistedPhotoURL(profile?.photoURL) || getPersistedPhotoURL(user.photoURL));
           setProfileLoaded(true);
         }
       })
@@ -160,11 +164,11 @@ export default function UserLoginPage() {
   const handleSaveProfile = async (event) => {
     event.preventDefault();
     await runAction('profile', async () => {
-      const nextProfile = await authService.updateProfileSettings({ displayName, gameServer, allianceName, allianceTag, photoURL });
+      const nextProfile = await authService.updateProfileSettings({ displayName, gameServer, allianceName, allianceTag, photoURL: getPersistedPhotoURL(photoURL) });
       setGameServer(nextProfile.gameServer);
       setAllianceName(nextProfile.allianceName);
       setAllianceTag(nextProfile.allianceTag);
-      setPhotoURL(nextProfile.photoURL || nextProfile.user.photoURL || '');
+      setPhotoURL(getPersistedPhotoURL(nextProfile.photoURL) || getPersistedPhotoURL(nextProfile.user.photoURL));
       setUser({ ...nextProfile.user });
     }, 'Profile saved.');
   };
