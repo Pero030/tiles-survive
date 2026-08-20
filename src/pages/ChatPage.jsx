@@ -306,7 +306,7 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
-    if (!user || !activeRoom?.id || chatLanguage === 'en') {
+    if (!user || !activeRoom?.id || !chatLanguage) {
       return undefined;
     }
 
@@ -500,7 +500,7 @@ export default function ChatPage() {
   const totalUnreadRooms = rooms.filter((room) => hasUnreadMessages(room)).length;
 
   const getDisplayedMessageText = (message) => {
-    if (chatLanguage === 'en' || message.uid === user.uid) {
+    if (message.uid === user.uid) {
       return message.text;
     }
 
@@ -705,3 +705,4 @@ export default function ChatPage() {
     </section>
   );
 }
+
