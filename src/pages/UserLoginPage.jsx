@@ -29,6 +29,7 @@ const getFriendlyError = (error) => {
   if (message.includes('auth/email-already-in-use')) return 'This email already has an account. Use Sign in instead.';
   if (message.includes('auth/weak-password')) return 'Password must have at least 6 characters.';
   if (message.includes('auth/requires-recent-login')) return 'For security, please sign out and sign in again before changing your password.';
+  if (message.includes('auth/wrong-password') || message.includes('auth/invalid-login-credentials')) return 'Current password is not correct.';
   if (message.includes('Account does not exist')) return 'Account does not exist. Please use Register first.';
   if (message.includes('auth/user-not-found')) return 'Account does not exist. Please use Register first.';
   if (message.includes('auth/invalid-credential')) return 'Email or password is not correct, or this account does not exist yet.';
@@ -47,6 +48,11 @@ export default function UserLoginPage() {
   const [allianceName, setAllianceName] = useState('');
   const [allianceTag, setAllianceTag] = useState('');
   const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [currentPasswordForPassword, setCurrentPasswordForPassword] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+  const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState('');
+  const [profileSection, setProfileSection] = useState('profile');
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState('error');
   const [busy, setBusy] = useState('');
@@ -63,12 +69,17 @@ export default function UserLoginPage() {
   useEffect(() => authService.subscribe((nextUser) => {
     setUser(nextUser);
     setDisplayName(nextUser?.displayName || '');
+    setNewEmail(nextUser?.email || '');
     setPhotoURL(getPersistedPhotoURL(nextUser?.photoURL));
     if (!nextUser) {
       setPhotoURL('');
       setGameServer('');
       setAllianceName('');
       setAllianceTag('');
+      setCurrentPasswordForEmail('');
+      setCurrentPasswordForPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
       setProfileLoaded(false);
     }
     if (nextUser) setStatus('');
@@ -211,11 +222,24 @@ export default function UserLoginPage() {
     setAllianceTag(event.target.value.replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8));
   };
 
+  const handleEmailChange = async (event) => {
+    event.preventDefault();
+    await runAction('change-email', async () => {
+      await authService.updateUserEmail(newEmail, currentPasswordForEmail);
+      setCurrentPasswordForEmail('');
+    }, 'Verification email sent to the new address. Confirm it to finish the change.');
+  };
   const handlePasswordChange = async (event) => {
     event.preventDefault();
     await runAction('password', async () => {
-      await authService.updateUserPassword(newPassword);
+      if (newPassword !== confirmNewPassword) {
+        throw new Error('New passwords do not match.');
+      }
+
+      await authService.updateUserPassword(currentPasswordForPassword, newPassword);
+      setCurrentPasswordForPassword('');
       setNewPassword('');
+      setConfirmNewPassword('');
     }, 'Password changed.');
   };
 
@@ -270,48 +294,78 @@ export default function UserLoginPage() {
                 </button>
               </div>
             </section>
+          ) : null}
+
+          <nav className="profile-menu" aria-label="Profile menu">
+            <button className={profileSection === 'profile' ? 'is-active' : ''} type="button" onClick={() => setProfileSection('profile')}>
+              <UserRound size={19} />
+              Profile Data
+            </button>
+            <button className={profileSection === 'security' ? 'is-active' : ''} type="button" onClick={() => setProfileSection('security')}>
+              <KeyRound size={19} />
+              Security
+            </button>
+          </nav>
+
+          {profileSection === 'profile' ? (
+            <form className="profile-panel profile-settings-card profile-section-card" onSubmit={handleSaveProfile}>
+              <div className="profile-panel-heading">
+                <span><UserRound size={21} /></span>
+                <div>
+                  <h2>Profile Data</h2>
+                  <p>Choose your public name, profile image, server, and alliance.</p>
+                </div>
+              </div>
+              <label htmlFor="profile-display-name">Display name</label>
+              <input id="profile-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" maxLength={40} disabled={!profileLoaded} />
+              <label htmlFor="profile-photo-upload">Profile image</label>
+              <div className="profile-image-upload-row">
+                <div className={photoURL ? 'profile-image-preview has-photo' : 'profile-image-preview'} translate="no">
+                  {photoURL ? <img src={photoURL} alt="" /> : userLabel.slice(0, 1).toUpperCase()}
+                </div>
+                <label className="profile-image-upload-button" htmlFor="profile-photo-upload">
+                  <ImagePlus size={18} />
+                  {busy === 'profile-image' ? 'Uploading...' : 'Upload image'}
+                </label>
+                <input id="profile-photo-upload" type="file" accept="image/*" onChange={handleProfileImageUpload} disabled={!profileLoaded || busy === 'profile-image'} />
+              </div>
+              <label htmlFor="profile-game-server">Game server</label>
+              <div className="profile-server-input">
+                <span translate="no">#</span>
+                <input id="profile-game-server" inputMode="numeric" pattern="[0-9]*" value={gameServer} onChange={handleGameServerChange} placeholder={profileLoaded ? '867' : 'Loading...'} maxLength={6} disabled={!profileLoaded} />
+              </div>
+              <label htmlFor="profile-alliance-name">Alliance name</label>
+              <input id="profile-alliance-name" value={allianceName} onChange={(event) => setAllianceName(event.target.value.slice(0, 48))} placeholder={profileLoaded ? 'EmpireARDA' : 'Loading...'} maxLength={48} disabled={!profileLoaded} />
+              <label htmlFor="profile-alliance-tag">Alliance tag</label>
+              <div className="profile-alliance-tag-input">
+                <span translate="no">[</span>
+                <input id="profile-alliance-tag" value={allianceTag} onChange={handleAllianceTagChange} placeholder={profileLoaded ? 'ADA' : 'Loading...'} maxLength={8} disabled={!profileLoaded} />
+                <span translate="no">]</span>
+              </div>
+              <button className="user-auth-primary" type="submit" disabled={!profileLoaded || busy === 'profile'}>
+                {!profileLoaded ? 'Loading profile...' : busy === 'profile' ? 'Saving...' : 'Save profile'}
+              </button>
+            </form>
           ) : (
-            <section className="profile-settings-grid">
-              <form className="profile-panel profile-settings-card" onSubmit={handleSaveProfile}>
+            <section className="profile-security-grid">
+              <form className="profile-panel profile-settings-card profile-section-card" onSubmit={handleEmailChange}>
                 <div className="profile-panel-heading">
-                  <span><UserRound size={21} /></span>
+                  <span><Mail size={21} /></span>
                   <div>
-                    <h2>Profile Settings</h2>
-                    <p>Choose your public name, server, and alliance.</p>
+                    <h2>Email</h2>
+                    <p>{canChangePassword ? 'Confirm with your current password before changing your email.' : 'Email changes are only available for email accounts.'}</p>
                   </div>
                 </div>
-                <label htmlFor="profile-display-name">Display name</label>
-                <input id="profile-display-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" maxLength={40} disabled={!profileLoaded} />
-                <label htmlFor="profile-photo-upload">Profile image</label>
-                <div className="profile-image-upload-row">
-                  <div className={photoURL ? 'profile-image-preview has-photo' : 'profile-image-preview'} translate="no">
-                    {photoURL ? <img src={photoURL} alt="" /> : userLabel.slice(0, 1).toUpperCase()}
-                  </div>
-                  <label className="profile-image-upload-button" htmlFor="profile-photo-upload">
-                    <ImagePlus size={18} />
-                    {busy === 'profile-image' ? 'Uploading...' : 'Upload image'}
-                  </label>
-                  <input id="profile-photo-upload" type="file" accept="image/*" onChange={handleProfileImageUpload} disabled={!profileLoaded || busy === 'profile-image'} />
-                </div>
-                <label htmlFor="profile-game-server">Game server</label>
-                <div className="profile-server-input">
-                  <span translate="no">#</span>
-                  <input id="profile-game-server" inputMode="numeric" pattern="[0-9]*" value={gameServer} onChange={handleGameServerChange} placeholder={profileLoaded ? '867' : 'Loading...'} maxLength={6} disabled={!profileLoaded} />
-                </div>
-                <label htmlFor="profile-alliance-name">Alliance name</label>
-                <input id="profile-alliance-name" value={allianceName} onChange={(event) => setAllianceName(event.target.value.slice(0, 48))} placeholder={profileLoaded ? 'EmpireARDA' : 'Loading...'} maxLength={48} disabled={!profileLoaded} />
-                <label htmlFor="profile-alliance-tag">Alliance tag</label>
-                <div className="profile-alliance-tag-input">
-                  <span translate="no">[</span>
-                  <input id="profile-alliance-tag" value={allianceTag} onChange={handleAllianceTagChange} placeholder={profileLoaded ? 'ADA' : 'Loading...'} maxLength={8} disabled={!profileLoaded} />
-                  <span translate="no">]</span>
-                </div>
-                <button className="user-auth-primary" type="submit" disabled={!profileLoaded || busy === 'profile'}>
-                  {!profileLoaded ? 'Loading profile...' : busy === 'profile' ? 'Saving...' : 'Save profile'}
+                <label htmlFor="profile-new-email">New email</label>
+                <input id="profile-new-email" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} placeholder="you@example.com" disabled={!canChangePassword} />
+                <label htmlFor="profile-email-current-password">Current password</label>
+                <input id="profile-email-current-password" type="password" autoComplete="current-password" value={currentPasswordForEmail} onChange={(event) => setCurrentPasswordForEmail(event.target.value)} placeholder="Current password" disabled={!canChangePassword} />
+                <button className="user-auth-primary" type="submit" disabled={!canChangePassword || busy === 'change-email'}>
+                  {busy === 'change-email' ? 'Sending...' : 'Change email'}
                 </button>
               </form>
 
-              <form className="profile-panel profile-settings-card" onSubmit={handlePasswordChange}>
+              <form className="profile-panel profile-settings-card profile-section-card" onSubmit={handlePasswordChange}>
                 <div className="profile-panel-heading">
                   <span><KeyRound size={21} /></span>
                   <div>
@@ -319,8 +373,12 @@ export default function UserLoginPage() {
                     <p>{canChangePassword ? 'Change your email login password.' : 'Password changes are only available for email accounts.'}</p>
                   </div>
                 </div>
+                <label htmlFor="profile-current-password">Current password</label>
+                <input id="profile-current-password" type="password" autoComplete="current-password" value={currentPasswordForPassword} onChange={(event) => setCurrentPasswordForPassword(event.target.value)} placeholder="Current password" disabled={!canChangePassword} />
                 <label htmlFor="profile-new-password">New password</label>
-                <input id="profile-new-password" type="password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Minimum 6 characters" minLength={6} disabled={!canChangePassword} />
+                <input id="profile-new-password" type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} placeholder="Minimum 6 characters" minLength={6} disabled={!canChangePassword} />
+                <label htmlFor="profile-confirm-new-password">Confirm new password</label>
+                <input id="profile-confirm-new-password" type="password" autoComplete="new-password" value={confirmNewPassword} onChange={(event) => setConfirmNewPassword(event.target.value)} placeholder="Repeat new password" minLength={6} disabled={!canChangePassword} />
                 <button className="user-auth-secondary" type="submit" disabled={!canChangePassword || busy === 'password'}>
                   {busy === 'password' ? 'Changing...' : 'Change password'}
                 </button>
@@ -328,19 +386,7 @@ export default function UserLoginPage() {
             </section>
           )}
 
-          <section className="profile-panel profile-details-card">
-            <div className="user-profile-grid" translate="no">
-              <span>UID</span>
-              <strong>{user.uid}</strong>
-              <span>Provider</span>
-              <strong>{providerId}</strong>
-              <span>Email verified</span>
-              <strong>{user.email ? user.emailVerified ? 'Yes' : 'No' : 'No email'}</strong>
-              <span>Game server</span>
-              <strong>{gameServer ? `#${gameServer}` : 'Not set'}</strong>
-              <span>Alliance</span>
-              <strong>{allianceName ? `${allianceTag ? `[${allianceTag}] ` : ''}${allianceName}` : 'Not set'}</strong>
-            </div>
+          <section className="profile-panel profile-account-actions">
             {status ? <strong className={statusTone === 'success' ? 'user-auth-status is-positive' : 'user-auth-status'}>{status}</strong> : null}
             <button className="user-auth-primary" type="button" onClick={handleLogout} disabled={busy === 'logout'}>
               {busy === 'logout' ? 'Signing out...' : 'Sign Out'}
