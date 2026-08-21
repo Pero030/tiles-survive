@@ -838,16 +838,14 @@ export default function ChatPage() {
                   <>
                     <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => setActiveRoomId(liveAllianceRoom.id)}>
                       <ShieldCheck size={17} />
-                      <span translate="no">{liveAllianceRoom.title}</span>
-                      <small>{allianceAccessState === 'member' ? 'Approved members only' : allianceAccessState === 'pending' ? 'Request pending' : 'Approval required'}</small>
+                      <span>{liveAllianceRoom.title}</span>
                       {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
                     </button>
                     <div className="chat-alliance-subrooms">
                       {allianceSubRooms.map((room) => (
                         <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)}>
                           <MessageCircle size={15} />
-                          <span translate="no">{room.title}</span>
-                          <small>Alliance sub chat</small>
+                          <span>{room.title}</span>
                           {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
                         </button>
                       ))}
@@ -861,7 +859,7 @@ export default function ChatPage() {
                   </>
                 ) : allianceRoom ? (
                   <div className="chat-room-note">
-                    <strong translate="no">{allianceRoom.title}</strong>
+                    <strong>{allianceRoom.title}</strong>
                     <span>Not created yet.</span>
                     <button className="chat-room-inline-action" type="button" onClick={handleCreateAllianceChat} disabled={allianceAction}>
                       {allianceAction ? 'Creating...' : 'Create alliance chat'}
@@ -930,7 +928,7 @@ export default function ChatPage() {
             <div className="chat-room-heading">
               <div>
                 <span>{activeRoom.type === 'global' ? 'Global chat' : activeRoom.type === 'alliance' ? 'Alliance chat' : activeRoom.type === 'allianceSub' ? 'Alliance sub chat' : 'Private chat'}</span>
-                <h2 translate={activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub' ? 'no' : undefined}>{activeRoom.title || 'Private Chat'}</h2>
+                <h2>{activeRoom.title || 'Private Chat'}</h2>
               </div>
               <div className="chat-room-heading-actions">
                 {(activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub') && canUseActiveRoom ? (
