@@ -5370,6 +5370,32 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   justify-self: end;
 }
 
+.chat-message-system {
+  align-items: center;
+  background: linear-gradient(180deg, #fff9df 0%, #fff2bf 100%);
+  border: 2px solid rgba(255, 138, 37, 0.22);
+  border-radius: 999px;
+  color: #5f785f;
+  display: inline-flex;
+  flex-wrap: wrap;
+  font-weight: 950;
+  gap: 0.45rem;
+  justify-self: center;
+  max-width: min(36rem, 100%);
+  padding: 0.45rem 0.8rem;
+  text-align: center;
+}
+
+.chat-message-system span {
+  color: #103a52;
+}
+
+.chat-message-system time {
+  color: #6a826a;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
 .chat-message-avatar {
   align-items: center;
   aspect-ratio: 1;
