@@ -1,5 +1,6 @@
-import { FileText, Hammer, Image, Lock, LogOut, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
+import { FileText, Hammer, Image, Lock, LogOut, MessageCircle, ShieldCheck, Trash2, UserPlus, Users } from 'lucide-react';
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { formatChatRoomType, subscribeToAllChatRooms, subscribeToChatRoomMessages } from '../services/chatMonitor.js';
 import { addAdminEmail, removeAdminEmail, subscribeToAdminAccess } from '../services/adminAccess.js';
 import { signInAdmin, signOutAdmin, subscribeToAdminAuth } from '../services/adminAuth.js';
 import { subscribeToWebsiteUsers } from '../services/websiteUsers.js';
@@ -48,6 +49,11 @@ const toDate = (value) => {
 const formatUserDate = (value) => {
   const date = toDate(value);
   return date ? date.toLocaleString('en') : 'Not recorded yet';
+};
+
+const formatChatDate = (value) => {
+  const date = toDate(value);
+  return date ? date.toLocaleString('en') : 'No activity yet';
 };
 
 const isRecentlyActive = (value) => {
@@ -136,6 +142,95 @@ function WebsiteUsersPanel({ currentEmail }) {
     </section>
   );
 }
+
+function ChatMonitorPanel() {
+  const [rooms, setRooms] = useState([]);
+  const [selectedRoomId, setSelectedRoomId] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [status, setStatus] = useState('');
+
+  useEffect(() => subscribeToAllChatRooms(
+    (items) => {
+      setRooms(items);
+      setStatus('');
+      setSelectedRoomId((current) => current || items[0]?.id || '');
+    },
+    (error) => setStatus(error.message || 'Could not load chat rooms.'),
+  ), []);
+
+  useEffect(() => {
+    if (!selectedRoomId) {
+      setMessages([]);
+      return undefined;
+    }
+
+    return subscribeToChatRoomMessages(
+      selectedRoomId,
+      (items) => {
+        setMessages(items);
+        setStatus('');
+      },
+      (error) => setStatus(error.message || 'Could not load chat messages.'),
+    );
+  }, [selectedRoomId]);
+
+  const selectedRoom = rooms.find((room) => room.id === selectedRoomId) || null;
+
+  const getRoomTitle = (room) => room?.title || (room?.type === 'global' ? 'Global' : 'Unnamed chat');
+
+  const getParticipantCount = (room) => room?.memberCount || Object.keys(room?.memberUids || {}).length || (room?.type === 'global' ? 'All users' : 0);
+
+  return (
+    <section className="admin-access-panel chat-monitor-panel">
+      <div className="admin-access-heading">
+        <span><MessageCircle size={22} /></span>
+        <div>
+          <h2>Chat Monitor</h2>
+          <p>Read global, alliance, sub, and private chats for moderation and support.</p>
+        </div>
+      </div>
+
+      {status ? <strong className="admin-access-status">{status}</strong> : null}
+
+      <div className="chat-monitor-layout">
+        <div className="chat-monitor-room-list">
+          {rooms.length ? rooms.map((room) => (
+            <button className={room.id === selectedRoomId ? 'is-active' : ''} key={room.id} type="button" onClick={() => setSelectedRoomId(room.id)}>
+              <strong>{getRoomTitle(room)}</strong>
+              <span>{formatChatRoomType(room.type)} · {getParticipantCount(room)} members</span>
+              <small>{formatChatDate(room.lastMessageAt || room.updatedAt)}</small>
+            </button>
+          )) : <p className="admin-access-empty">No chat rooms found.</p>}
+        </div>
+
+        <div className="chat-monitor-message-panel">
+          {selectedRoom ? (
+            <header>
+              <div>
+                <strong>{getRoomTitle(selectedRoom)}</strong>
+                <span>{formatChatRoomType(selectedRoom.type)} · ID: {selectedRoom.id}</span>
+              </div>
+              <small>{messages.length} messages shown</small>
+            </header>
+          ) : null}
+
+          <div className="chat-monitor-messages">
+            {messages.length ? messages.map((message) => (
+              <article className={message.type === 'system' ? 'is-system' : ''} key={message.id}>
+                <header>
+                  <strong>{message.type === 'system' ? 'System' : message.senderLabel || message.displayName || 'Player'}</strong>
+                  <time>{formatChatDate(message.createdAt)}</time>
+                </header>
+                <p>{message.text || ''}</p>
+              </article>
+            )) : <p className="admin-access-empty">No messages in this chat yet.</p>}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function AdminAccessPanel({ currentEmail }) {
   const [accessState, setAccessState] = useState({ active: true, emails: [] });
   const [newEmail, setNewEmail] = useState('');
@@ -312,6 +407,8 @@ export default function AdminLoginPage() {
           ) : null}
 
           <WebsiteUsersPanel currentEmail={currentSession.email.toLowerCase()} />
+
+          <ChatMonitorPanel />
 
           <AdminAccessPanel currentEmail={currentSession.email.toLowerCase()} />
 
