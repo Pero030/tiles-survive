@@ -555,7 +555,7 @@ function WorldMapFeature({ entry }) {
 
   const pathFromPoints = (points) => points.map((point) => `${point.x},${point.y}`).join(' ');
 
-  const downloadEditedMap = () => {
+  const downloadEditedMap = async () => {
     const fileBaseName = 'tiles-survive-weltkarte-bearbeitet';
     const triggerDownload = (href, filename) => {
       const link = document.createElement('a');
@@ -566,73 +566,56 @@ function WorldMapFeature({ entry }) {
       link.remove();
     };
 
-    const overlay = document.querySelector('.world-map-overlay');
-    const overlayClone = overlay?.cloneNode(true) || null;
-    overlayClone?.querySelectorAll('.world-map-selection, .world-map-draft-anchor').forEach((node) => node.remove());
-    overlayClone?.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    overlayClone?.setAttribute('viewBox', '0 0 100 100');
-    overlayClone?.setAttribute('preserveAspectRatio', 'none');
-    const overlaySource = overlayClone ? new XMLSerializer().serializeToString(overlayClone) : '';
-    const imageUrl = assetPath(entry.image.src);
+    const loadImage = (source) => new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Image could not be loaded for export.'));
+      image.src = source;
+    });
 
-    const downloadSvgFallback = () => {
-      const safeImageUrl = imageUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-      const overlayMarkup = overlaySource.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
-      const svgSource = `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 100 100" preserveAspectRatio="none"><image href="${safeImageUrl}" x="0" y="0" width="100" height="100" preserveAspectRatio="none"/>${overlayMarkup}</svg>`;
-      const svgUrl = URL.createObjectURL(new Blob([svgSource], { type: 'image/svg+xml;charset=utf-8' }));
-      triggerDownload(svgUrl, `${fileBaseName}.svg`);
-      setTimeout(() => URL.revokeObjectURL(svgUrl), 1000);
-    };
+    try {
+      const imageUrl = assetPath(entry.image.src);
+      const imageDataUrl = await getPublicAssetDataUrl(imageUrl);
+      const image = await loadImage(imageDataUrl);
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth || 1920;
+      canvas.height = image.naturalHeight || 1080;
+      const context = canvas.getContext('2d');
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-    const downloadCanvas = (canvas) => {
-      canvas.toBlob((blob) => {
-        if (!blob) {
-          downloadSvgFallback();
-          return;
-        }
+      const overlay = document.querySelector('.world-map-overlay');
+      const overlayClone = overlay?.cloneNode(true) || null;
+      overlayClone?.querySelectorAll('.world-map-selection, .world-map-draft-anchor').forEach((node) => node.remove());
 
-        const pngUrl = URL.createObjectURL(blob);
-        triggerDownload(pngUrl, `${fileBaseName}.png`);
-        setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
-      }, 'image/png');
-    };
-
-    const image = new Image();
-    image.crossOrigin = 'anonymous';
-    image.onload = () => {
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = image.naturalWidth || 1920;
-        canvas.height = image.naturalHeight || 1080;
-        const context = canvas.getContext('2d');
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-        if (!overlaySource) {
-          downloadCanvas(canvas);
-          return;
-        }
-
-        const overlayImage = new Image();
+      if (overlayClone) {
+        overlayClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+        overlayClone.setAttribute('width', String(canvas.width));
+        overlayClone.setAttribute('height', String(canvas.height));
+        overlayClone.setAttribute('viewBox', '0 0 100 100');
+        overlayClone.setAttribute('preserveAspectRatio', 'none');
+        const overlaySource = new XMLSerializer().serializeToString(overlayClone);
         const overlayUrl = URL.createObjectURL(new Blob([overlaySource], { type: 'image/svg+xml;charset=utf-8' }));
-        overlayImage.onload = () => {
-          context.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
-          URL.revokeObjectURL(overlayUrl);
-          downloadCanvas(canvas);
-        };
-        overlayImage.onerror = () => {
-          URL.revokeObjectURL(overlayUrl);
-          downloadCanvas(canvas);
-        };
-        overlayImage.src = overlayUrl;
-      } catch (error) {
-        console.error(error);
-        downloadSvgFallback();
+        const overlayImage = await loadImage(overlayUrl);
+        context.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
+        URL.revokeObjectURL(overlayUrl);
       }
-    };
-    image.onerror = () => {
-      downloadSvgFallback();
-    };
-    image.src = imageUrl;
+
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((nextBlob) => {
+          if (nextBlob) {
+            resolve(nextBlob);
+          } else {
+            reject(new Error('PNG export could not be created.'));
+          }
+        }, 'image/png');
+      });
+      const pngUrl = URL.createObjectURL(blob);
+      triggerDownload(pngUrl, `${fileBaseName}.png`);
+      setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+    } catch (error) {
+      console.error(error);
+      window.alert('PNG download could not be created. Please try again after the page reloads.');
+    }
   };
 
   return (
