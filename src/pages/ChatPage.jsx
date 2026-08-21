@@ -322,8 +322,7 @@ export default function ChatPage() {
     }
 
     const newestMessageAt = messages.reduce((newest, message) => Math.max(newest, getTimestampValue(message.createdAt)), 0);
-    const roomUpdatedAt = getTimestampValue(activeRoom.lastMessageAt || activeRoom.updatedAt);
-    const newestReadAt = Math.max(newestMessageAt, roomUpdatedAt);
+    const newestReadAt = Math.max(newestMessageAt, getTimestampValue(activeRoom.lastMessageAt));
 
     if (!newestReadAt || readByRoom[activeRoom.id] >= newestReadAt) {
       return;
@@ -724,7 +723,7 @@ export default function ChatPage() {
 
   const hasUnreadMessages = (room) => {
     if (!room?.id || room.id === activeRoomId) return 0;
-    const latest = getTimestampValue(room.lastMessageAt || room.updatedAt);
+    const latest = getTimestampValue(room.lastMessageAt);
     return Boolean(latest && latest > (readByRoom[room.id] || 0));
   };
 
