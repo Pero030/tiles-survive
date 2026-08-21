@@ -556,44 +556,83 @@ function WorldMapFeature({ entry }) {
   const pathFromPoints = (points) => points.map((point) => `${point.x},${point.y}`).join(' ');
 
   const downloadEditedMap = () => {
+    const fileBaseName = 'tiles-survive-weltkarte-bearbeitet';
+    const triggerDownload = (href, filename) => {
+      const link = document.createElement('a');
+      link.href = href;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    };
+
+    const overlay = document.querySelector('.world-map-overlay');
+    const overlayClone = overlay?.cloneNode(true) || null;
+    overlayClone?.querySelectorAll('.world-map-selection, .world-map-draft-anchor').forEach((node) => node.remove());
+    overlayClone?.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    overlayClone?.setAttribute('viewBox', '0 0 100 100');
+    overlayClone?.setAttribute('preserveAspectRatio', 'none');
+    const overlaySource = overlayClone ? new XMLSerializer().serializeToString(overlayClone) : '';
+    const imageUrl = assetPath(entry.image.src);
+
+    const downloadSvgFallback = () => {
+      const safeImageUrl = imageUrl.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+      const overlayMarkup = overlaySource.replace(/^<svg[^>]*>/, '').replace(/<\/svg>$/, '');
+      const svgSource = `<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 100 100" preserveAspectRatio="none"><image href="${safeImageUrl}" x="0" y="0" width="100" height="100" preserveAspectRatio="none"/>${overlayMarkup}</svg>`;
+      const svgUrl = URL.createObjectURL(new Blob([svgSource], { type: 'image/svg+xml;charset=utf-8' }));
+      triggerDownload(svgUrl, `${fileBaseName}.svg`);
+      setTimeout(() => URL.revokeObjectURL(svgUrl), 1000);
+    };
+
+    const downloadCanvas = (canvas) => {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          downloadSvgFallback();
+          return;
+        }
+
+        const pngUrl = URL.createObjectURL(blob);
+        triggerDownload(pngUrl, `${fileBaseName}.png`);
+        setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+      }, 'image/png');
+    };
+
     const image = new Image();
     image.crossOrigin = 'anonymous';
     image.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      const context = canvas.getContext('2d');
-      context.drawImage(image, 0, 0);
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth || 1920;
+        canvas.height = image.naturalHeight || 1080;
+        const context = canvas.getContext('2d');
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
 
-      const overlay = document.querySelector('.world-map-overlay');
-      if (!overlay) {
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        link.download = 'tiles-survive-weltkarte-bearbeitet.png';
-        link.click();
-        return;
+        if (!overlaySource) {
+          downloadCanvas(canvas);
+          return;
+        }
+
+        const overlayImage = new Image();
+        const overlayUrl = URL.createObjectURL(new Blob([overlaySource], { type: 'image/svg+xml;charset=utf-8' }));
+        overlayImage.onload = () => {
+          context.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(overlayUrl);
+          downloadCanvas(canvas);
+        };
+        overlayImage.onerror = () => {
+          URL.revokeObjectURL(overlayUrl);
+          downloadCanvas(canvas);
+        };
+        overlayImage.src = overlayUrl;
+      } catch (error) {
+        console.error(error);
+        downloadSvgFallback();
       }
-
-      const overlayClone = overlay.cloneNode(true);
-      overlayClone.querySelectorAll('.world-map-selection, .world-map-draft-anchor').forEach((node) => node.remove());
-      overlayClone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      overlayClone.setAttribute('width', String(canvas.width));
-      overlayClone.setAttribute('height', String(canvas.height));
-      overlayClone.setAttribute('viewBox', '0 0 100 100');
-      overlayClone.setAttribute('preserveAspectRatio', 'none');
-      const overlaySource = new XMLSerializer().serializeToString(overlayClone);
-      const overlayImage = new Image();
-      overlayImage.onload = () => {
-        context.drawImage(overlayImage, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(overlayImage.src);
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        link.download = 'tiles-survive-weltkarte-bearbeitet.png';
-        link.click();
-      };
-      overlayImage.src = URL.createObjectURL(new Blob([overlaySource], { type: 'image/svg+xml;charset=utf-8' }));
     };
-    image.src = assetPath(entry.image.src);
+    image.onerror = () => {
+      downloadSvgFallback();
+    };
+    image.src = imageUrl;
   };
 
   return (
