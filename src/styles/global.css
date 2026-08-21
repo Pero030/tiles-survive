@@ -5177,6 +5177,7 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   font-weight: 1000;
 }
 .chat-invite-code-box,
+.chat-name-setting,
 .chat-subroom-setting {
   align-items: center;
   background: #ffffff;
@@ -5190,9 +5191,50 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
 }
 
 .chat-invite-code-box span,
+.chat-name-setting label,
 .chat-subroom-setting label {
   color: #5f785f;
   font-weight: 950;
+}
+
+.chat-name-setting div {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: minmax(12rem, 1fr) auto;
+}
+
+.chat-name-setting input {
+  background: #f7fcff;
+  border: 3px solid #b8e8a7;
+  border-radius: 0.75rem;
+  color: #14394b;
+  font: inherit;
+  font-weight: 900;
+  min-height: 2.6rem;
+  outline: none;
+  padding: 0.45rem 0.65rem;
+}
+
+.chat-name-setting input:focus {
+  border-color: #3f9be8;
+  box-shadow: 0 0 0 4px rgba(63, 155, 232, 0.16);
+}
+
+.chat-name-setting button {
+  background: linear-gradient(180deg, #7acb59 0%, #28984b 100%);
+  border: 0;
+  border-radius: 0.7rem;
+  color: #ffffff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 1000;
+  min-height: 2.6rem;
+  padding: 0.45rem 0.85rem;
+}
+
+.chat-name-setting button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .chat-invite-code-box strong {
