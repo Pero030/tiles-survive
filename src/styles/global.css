@@ -3887,6 +3887,82 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   gap: 0.75rem;
 }
 
+.admin-filter-toolbar {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.admin-search-field {
+  align-items: center;
+  background: #ffffff;
+  border: 3px solid #b8e8a7;
+  border-radius: 0.85rem;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  min-height: 3.05rem;
+  padding: 0 0.8rem;
+}
+
+.admin-search-field:focus-within {
+  border-color: #3f9be8;
+  box-shadow: 0 0 0 4px rgba(63, 155, 232, 0.16);
+}
+
+.admin-search-field svg {
+  color: #247fc2;
+}
+
+.admin-search-field input {
+  border: 0;
+  color: #14394b;
+  font: inherit;
+  font-weight: 850;
+  min-width: 0;
+  outline: 0;
+  padding: 0.65rem 0;
+}
+
+.admin-filter-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.admin-filter-tabs button {
+  align-items: center;
+  background: #ffffff;
+  border: 2px solid rgba(63, 155, 232, 0.18);
+  border-radius: 999px;
+  color: #103a52;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 950;
+  gap: 0.4rem;
+  min-height: 2.45rem;
+  padding: 0.45rem 0.75rem;
+}
+
+.admin-filter-tabs button.is-active,
+.admin-filter-tabs button:hover {
+  background: linear-gradient(180deg, #50afe9 0%, #247fc2 100%);
+  border-color: #247fc2;
+  color: #ffffff;
+}
+
+.admin-filter-tabs span {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.75);
+  border-radius: 999px;
+  color: #103a52;
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 1000;
+  justify-content: center;
+  min-width: 1.55rem;
+  padding: 0.12rem 0.35rem;
+}
+
 .website-user-row {
   align-items: center;
   background: #f7fcff;
@@ -3903,6 +3979,10 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   display: grid;
   gap: 0.18rem;
   min-width: 0;
+}
+
+.website-user-meta {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .website-user-main strong {
@@ -4086,6 +4166,10 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
 @media (max-width: 820px) {
   .website-user-row,
   .chat-monitor-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .website-user-meta {
     grid-template-columns: 1fr;
   }
 
