@@ -1153,7 +1153,12 @@ export default function ChatPage() {
             ) : null}
 
             {canUseActiveRoom ? <div className="chat-message-list" ref={listRef} aria-live="polite">
-              {messages.length ? messages.map((message) => (
+              {messages.length ? messages.map((message) => (message.type === 'system' ? (
+                <article className="chat-message-system" key={message.id}>
+                  <span translate="no">{getDisplayedMessageText(message)}</span>
+                  {message.createdAt ? <time>{formatChatTime(message.createdAt)}</time> : null}
+                </article>
+              ) : (
                 <article className={message.uid === user.uid ? 'chat-message is-own' : 'chat-message'} key={message.id}>
                   <div className={getMessagePhotoURL(message) ? 'chat-message-avatar has-photo' : 'chat-message-avatar'} translate="no">
                     {getMessagePhotoURL(message) ? <img src={getMessagePhotoURL(message)} alt="" /> : getMessageInitial(message)}
@@ -1166,7 +1171,7 @@ export default function ChatPage() {
                     <p translate="no">{renderMessageText(getDisplayedMessageText(message), activeRoomMemberProfiles)}</p>
                   </div>
                 </article>
-              )) : (
+              ))) : (
                 <div className="chat-empty-state">
                   <strong>No messages yet.</strong>
                   <p>Start the first conversation in this room.</p>
