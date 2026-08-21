@@ -15,6 +15,7 @@ const toR2Url = (source) => {
 
 export function assetPath(path) {
   if (!path || externalAssetPattern.test(path)) return path;
+  if (path === '/screenshots/world-map.png') return `${import.meta.env.BASE_URL}screenshots/world-map.png`;
   if (path.startsWith('r2://')) return toR2Url(path);
 
   if (preferR2Assets && firebaseAssetPrefixes.some((prefix) => path.startsWith(prefix))) {
