@@ -71,17 +71,20 @@ const getR2Client = () => new S3Client({
 const assertCanReadRoom = async ({ roomId, uid }) => {
   const roomSnapshot = await db.doc(`chatRooms/${roomId}`).get();
   if (!roomSnapshot.exists) {
+    if (roomId === 'global') {
+      return { type: 'global' };
+    }
     throw new HttpsError('not-found', 'Chat room not found.');
   }
 
   const room = roomSnapshot.data() || {};
   if (room.type === 'global') {
-    return;
+    return room;
   }
 
   if (room.type === 'private') {
     if (room.memberUids?.[uid] === true) {
-      return;
+      return room;
     }
 
     throw new HttpsError('permission-denied', 'You are not a member of this private chat.');
@@ -108,8 +111,7 @@ const assertCanReadRoom = async ({ roomId, uid }) => {
           throw new HttpsError('permission-denied', 'This leader chat is restricted.');
         }
       }
-
-      return;
+      return room;
     }
 
     throw new HttpsError('permission-denied', 'You are not an approved member of this alliance chat.');
@@ -167,6 +169,59 @@ exports.translateChatMessage = onCall({ region: 'us-central1', cors: allowedFunc
   }, { merge: true });
 
   return { translatedText: restoredText, targetLanguage };
+});
+
+exports.createChatImageUpload = onCall({
+  region: 'us-central1',
+  cors: allowedFunctionOrigins,
+  secrets: [r2AccessKeyId, r2SecretAccessKey],
+}, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError('unauthenticated', 'Sign in before uploading a chat image.');
+  }
+
+  const roomId = String(request.data?.roomId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 120);
+  const contentType = String(request.data?.contentType || '').toLowerCase();
+  const size = Number(request.data?.size || 0);
+  const extension = allowedAvatarTypes.get(contentType);
+
+  if (!roomId) {
+    throw new HttpsError('invalid-argument', 'Chat room is required.');
+  }
+
+  if (!extension) {
+    throw new HttpsError('invalid-argument', 'Please choose a JPG, PNG, WEBP, or GIF image.');
+  }
+
+  if (!size || size > 8 * 1024 * 1024) {
+    throw new HttpsError('invalid-argument', 'Chat image must be smaller than 8 MB.');
+  }
+
+  const room = await assertCanReadRoom({ roomId, uid });
+  if (room?.type === 'allianceSub' && room.memberCanWrite === false) {
+    const role = room.memberRoles?.[uid];
+    const canManage = room.ownerUid === uid || role === 'owner' || role === 'admin';
+    if (!canManage) {
+      throw new HttpsError('permission-denied', 'Only alliance chat owner/admins can upload images in this sub chat.');
+    }
+  }
+
+  const key = `chat-images/${roomId}/${uid}/image-${Date.now()}.${extension}`;
+  const uploadUrl = await getSignedUrl(
+    getR2Client(),
+    new PutObjectCommand({
+      Bucket: cleanConfigValue(r2Bucket.value()),
+      Key: key,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+    }),
+    { expiresIn: 120 },
+  );
+  const publicBaseUrl = cleanConfigValue(r2PublicUrl.value()).replace(/\/+$/, '');
+  const publicUrl = `${publicBaseUrl}/${key.split('/').map(encodeURIComponent).join('/')}`;
+
+  return { uploadUrl, publicUrl };
 });
 
 exports.createProfileImageUpload = onCall({
