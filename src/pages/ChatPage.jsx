@@ -1,8 +1,9 @@
-import { LockKeyhole, MessageCircle, Plus, Search, Send, Settings, ShieldCheck, SmilePlus, Trash2, UserPlus, Users } from 'lucide-react';
+import { ImagePlus, LockKeyhole, MessageCircle, Plus, Search, Send, Settings, ShieldCheck, SmilePlus, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authService } from '../features/auth/authService.js';
 import { chatService } from '../features/chat/chatService.js';
+import { uploadChatImageToR2 } from '../services/chatImages.js';
 import { subscribeToPublicProfiles } from '../services/profileDirectory.js';
 
 const formatChatTime = (createdAt) => {
@@ -31,6 +32,8 @@ const getSearchText = (profile) => [
 ].filter(Boolean).join(' ').toLowerCase();
 
 const chatEmojiOptions = ['😀', '😂', '😍', '😎', '😭', '😡', '👍', '👎', '🙏', '🔥', '💪', '🎉', '❤️', '💚', '💎', '⚔️', '🛡️', '🏆', '✅', '❌'];
+const deleteConfirmationWords = ['delete', 'loeschen', 'loschen', 'löschen'];
+const isDeleteConfirmationWord = (value) => deleteConfirmationWords.includes(String(value || '').trim().toLowerCase());
 
 const getTimestampValue = (timestamp) => timestamp?.toMillis?.() || 0;
 
@@ -147,6 +150,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [publicProfiles, setPublicProfiles] = useState([]);
   const [draft, setDraft] = useState('');
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedImagePreview, setSelectedImagePreview] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [chatLanguage, setChatLanguage] = useState(() => getStoredChatLanguage());
   const [translatedMessages, setTranslatedMessages] = useState({});
@@ -162,10 +167,12 @@ export default function ChatPage() {
   const [allianceAction, setAllianceAction] = useState(false);
   const [allianceInviteCode, setAllianceInviteCode] = useState('');
   const [allianceChatName, setAllianceChatName] = useState('');
+  const [allianceDeleteConfirmation, setAllianceDeleteConfirmation] = useState('');
   const [roomCategory, setRoomCategory] = useState('alliance');
   const [alliancePanel, setAlliancePanel] = useState('');
   const listRef = useRef(null);
   const textareaRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   useEffect(() => authService.subscribe(setUser), []);
 
@@ -243,10 +250,12 @@ export default function ChatPage() {
   const canManageAllianceActiveRoom = chatService.canManageAllianceRoom(allianceManagementRoom, user);
   const canChangeAllianceRoles = chatService.canChangeAllianceRoles(allianceManagementRoom, user);
   const canCreateAllianceSubRoom = chatService.canCreateAllianceSubRoom(liveAllianceRoom, user);
+  const canDeleteAllianceActiveRoom = chatService.canDeleteAllianceRoom(allianceManagementRoom, user);
   const allianceSubRoomLimitReached = allianceSubRooms.length >= 5;
   const isAllianceRoomActive = activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub';
   const isMainAllianceRoomActive = activeRoom.type === 'alliance';
   const isAllianceSubRoomActive = activeRoom.type === 'allianceSub';
+  const canConfirmAllianceDelete = isDeleteConfirmationWord(allianceDeleteConfirmation);
 
   useEffect(() => {
     if (!rooms.some((room) => room.id === activeRoomId)) {
@@ -343,11 +352,18 @@ export default function ChatPage() {
     } else {
       setAllianceChatName('');
     }
+    setAllianceDeleteConfirmation('');
   }, [activeRoom?.id, activeRoom?.title, activeRoom?.type]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages.length, activeRoom?.id]);
+
+  useEffect(() => () => {
+    if (selectedImagePreview) {
+      URL.revokeObjectURL(selectedImagePreview);
+    }
+  }, [selectedImagePreview]);
 
   useEffect(() => {
     const syncChatLanguage = () => setChatLanguage(getStoredChatLanguage());
@@ -404,6 +420,7 @@ export default function ChatPage() {
   }, [activeRoom?.id, chatLanguage, messages, translatedMessages, user]);
 
   const trimmedDraft = useMemo(() => draft.trim(), [draft]);
+  const canSubmitMessage = Boolean(trimmedDraft || selectedImage);
   const currentPublicProfile = useMemo(() => ({
     uid: user?.uid,
     displayName: user?.displayName || profile.displayName || 'Player',
@@ -709,6 +726,38 @@ export default function ChatPage() {
     }
   };
 
+  const handleDeleteAllianceRoom = async () => {
+    if (!activeRoom?.id || (activeRoom.type !== 'alliance' && activeRoom.type !== 'allianceSub')) {
+      return;
+    }
+
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      if (activeRoom.type === 'allianceSub') {
+        await chatService.deleteAllianceSubRoom(activeRoom.id, allianceDeleteConfirmation);
+        setAllianceSubRooms((current) => current.filter((room) => room.id !== activeRoom.id));
+        setActiveRoomId(liveAllianceRoom?.id || 'global');
+        setStatus('Alliance sub chat deleted.');
+      } else {
+        await chatService.deleteAllianceRoom(activeRoom.id, allianceDeleteConfirmation);
+        setAllianceSubRooms([]);
+        setActiveRoomId('global');
+        setRoomCategory('global');
+        setStatus('Alliance chat and all sub chats deleted.');
+      }
+
+      setAlliancePanel('');
+      setAllianceDeleteConfirmation('');
+      setMessages([]);
+    } catch (error) {
+      setStatus(error.message || 'Alliance chat could not be deleted.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
   const handleDeletePrivateRoom = async () => {
     if (!activeRoom?.id || activeRoom.type !== 'private') {
       return;
@@ -741,12 +790,61 @@ export default function ChatPage() {
 
     setSending(true);
     try {
-      await chatService.sendMessage(activeRoom, trimmedDraft);
+      const image = selectedImage
+        ? {
+          url: await uploadChatImageToR2({ file: selectedImage, roomId: activeRoom.id }),
+          name: selectedImage.name,
+          type: selectedImage.type,
+          size: selectedImage.size,
+        }
+        : null;
+      await chatService.sendMessage(activeRoom, trimmedDraft, image);
       setDraft('');
+      setSelectedImage(null);
+      setSelectedImagePreview('');
+      if (imageInputRef.current) {
+        imageInputRef.current.value = '';
+      }
     } catch (error) {
       setStatus(error.message || 'Message could not be sent.');
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleSelectImage = (event) => {
+    const file = event.target.files?.[0] || null;
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setStatus('Please choose an image file.');
+      event.target.value = '';
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      setStatus('Chat image must be smaller than 8 MB.');
+      event.target.value = '';
+      return;
+    }
+
+    if (selectedImagePreview) {
+      URL.revokeObjectURL(selectedImagePreview);
+    }
+
+    setSelectedImage(file);
+    setSelectedImagePreview(URL.createObjectURL(file));
+    setStatus('');
+  };
+
+  const handleClearSelectedImage = () => {
+    if (selectedImagePreview) {
+      URL.revokeObjectURL(selectedImagePreview);
+    }
+    setSelectedImage(null);
+    setSelectedImagePreview('');
+    if (imageInputRef.current) {
+      imageInputRef.current.value = '';
     }
   };
 
@@ -1086,6 +1184,31 @@ export default function ChatPage() {
                         </div>
                       </div>
                     ) : null}
+                    {canDeleteAllianceActiveRoom ? (
+                      <div className="chat-danger-zone">
+                        <div>
+                          <h4><Trash2 size={17} /> {isMainAllianceRoomActive ? 'Delete alliance chat' : 'Delete sub chat'}</h4>
+                          <p>
+                            {isMainAllianceRoomActive
+                              ? 'This deletes the main alliance chat, all sub chats, every message, invite code, join request, and all chat memberships for this alliance.'
+                              : 'This deletes only this sub chat and its messages. The main alliance chat and other sub chats stay untouched.'}
+                          </p>
+                        </div>
+                        <label htmlFor="alliance-delete-confirmation">Type Delete or Löschen to confirm</label>
+                        <div>
+                          <input
+                            id="alliance-delete-confirmation"
+                            onChange={(event) => setAllianceDeleteConfirmation(event.target.value)}
+                            placeholder="Delete"
+                            type="text"
+                            value={allianceDeleteConfirmation}
+                          />
+                          <button type="button" onClick={handleDeleteAllianceRoom} disabled={allianceAction || !canConfirmAllianceDelete}>
+                            <Trash2 size={16} /> Accept
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
 
@@ -1191,7 +1314,12 @@ export default function ChatPage() {
                       <strong>{message.senderLabel || message.displayName || 'Player'}</strong>
                       {message.createdAt ? <time>{formatChatTime(message.createdAt)}</time> : null}
                     </header>
-                    <p translate="no">{renderMessageText(getDisplayedMessageText(message), activeRoomMemberProfiles)}</p>
+                    {message.image?.url ? (
+                      <a className="chat-message-image" href={message.image.url} target="_blank" rel="noreferrer" translate="no">
+                        <img src={message.image.url} alt={message.image.name || 'Chat image'} loading="lazy" />
+                      </a>
+                    ) : null}
+                    {getDisplayedMessageText(message) ? <p translate="no">{renderMessageText(getDisplayedMessageText(message), activeRoomMemberProfiles)}</p> : null}
                   </div>
                 </article>
               ))) : (
@@ -1223,6 +1351,10 @@ export default function ChatPage() {
                   rows={3}
                   value={draft}
                 />
+                <button className="chat-image-toggle" type="button" onClick={() => imageInputRef.current?.click()} aria-label="Choose image">
+                  <ImagePlus size={19} />
+                </button>
+                <input ref={imageInputRef} className="sr-only" type="file" accept="image/*" onChange={handleSelectImage} />
                 <button className="chat-emoji-toggle" type="button" onClick={() => setEmojiOpen((value) => !value)} aria-expanded={emojiOpen} aria-label="Choose emoji">
                   <SmilePlus size={19} />
                 </button>
@@ -1233,6 +1365,18 @@ export default function ChatPage() {
                         {emoji}
                       </button>
                     ))}
+                  </div>
+                ) : null}
+                {selectedImagePreview ? (
+                  <div className="chat-image-preview" translate="no">
+                    <img src={selectedImagePreview} alt="Selected chat upload" />
+                    <div>
+                      <strong>{selectedImage?.name || 'Selected image'}</strong>
+                      <span>{selectedImage?.size ? `${Math.ceil(selectedImage.size / 1024)} KB` : ''}</span>
+                    </div>
+                    <button type="button" onClick={handleClearSelectedImage} aria-label="Remove selected image">
+                      <X size={16} />
+                    </button>
                   </div>
                 ) : null}
                 {mentionSuggestions.length ? (
@@ -1247,7 +1391,7 @@ export default function ChatPage() {
                   </div>
                 ) : null}
               </div>
-              <button className="user-auth-primary" type="submit" disabled={sending || !trimmedDraft}>
+              <button className="user-auth-primary" type="submit" disabled={sending || !canSubmitMessage}>
                 <Send size={18} /> {sending ? 'Sending...' : 'Send'}
               </button>
             </form> : null}
