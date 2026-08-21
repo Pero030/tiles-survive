@@ -166,6 +166,15 @@ const canUseRoom = (room, user, profile = {}) => {
   return false;
 };
 
+const canWriteRoom = (room, user, profile = {}) => {
+  if (!canUseRoom(room, user, profile)) return false;
+  if (room.type !== 'allianceSub') return true;
+  if (room.memberCanWrite === false) {
+    return canManageAllianceRoom(room, user);
+  }
+  return true;
+};
+
 const canInviteToRoom = (room, user) => {
   if (!room || room.type !== 'private' || !user) return false;
   if (room.ownerUid === user.uid) return true;
@@ -226,6 +235,7 @@ export const chatService = {
   canInviteToRoom,
   canDeleteRoom,
   canUseRoom,
+  canWriteRoom,
   canManageAllianceRoom,
   canChangeAllianceRoles,
   canCreateAllianceSubRoom,
@@ -449,6 +459,7 @@ export const chatService = {
       memberRoles: liveParentRoom.memberRoles || {},
       memberCount: liveParentRoom.memberCount || Object.keys(liveParentRoom.memberUids || {}).length || 1,
       audience: 'members',
+      memberCanWrite: true,
       order: nextNumber,
       createdByLabel: buildSenderLabel(auth.currentUser, await getCurrentProfile()),
       createdAt: serverTimestamp(),
@@ -637,6 +648,37 @@ export const chatService = {
     });
   },
 
+  async setAllianceSubRoomWriteAccess(roomId, memberCanWrite) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before changing sub chat settings.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      throw new Error('Alliance sub chat not found.');
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (room.type !== 'allianceSub') {
+      throw new Error('Open an alliance sub chat first.');
+    }
+
+    let managerRoom = room;
+    if (room.parentRoomId) {
+      const parentSnapshot = await getDoc(getRoomRef(room.parentRoomId));
+      managerRoom = parentSnapshot.exists() ? { id: parentSnapshot.id, ...parentSnapshot.data() } : room;
+    }
+
+    if (!canManageAllianceRoom(managerRoom, auth.currentUser)) {
+      throw new Error('Only alliance chat owner/admins can change sub chat settings.');
+    }
+
+    await updateDoc(getRoomRef(roomId), {
+      memberCanWrite: Boolean(memberCanWrite),
+      updatedAt: serverTimestamp(),
+    });
+  },
+
   async renameAllianceRoom(roomId, title) {
     if (!auth.currentUser) {
       throw new Error('Sign in before changing chat settings.');
@@ -802,6 +844,9 @@ export const chatService = {
       const allianceRoom = { id: roomSnapshot.id, ...roomSnapshot.data() };
       if (!canUseRoom(allianceRoom, auth.currentUser, profile)) {
         throw new Error('You need alliance chat approval before writing here.');
+      }
+      if (!canWriteRoom(allianceRoom, auth.currentUser, profile)) {
+        throw new Error('Only alliance chat owner/admins can write in this sub chat.');
       }
     } else {
       const roomSnapshot = await getDoc(getRoomRef(roomId));
