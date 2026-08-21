@@ -914,16 +914,16 @@ export default function ChatPage() {
                   <>
                     {canManageAllianceActiveRoom ? (
                       <button className={alliancePanel === 'settings' ? 'chat-heading-action is-active' : 'chat-heading-action'} type="button" onClick={() => setAlliancePanel((current) => current === 'settings' ? '' : 'settings')}>
-                        <Settings size={16} /> Einstellungen
+                        <Settings size={16} /> Settings
                       </button>
                     ) : null}
                     {canManageAllianceActiveRoom && isMainAllianceRoomActive ? (
                       <button className={alliancePanel === 'invite' ? 'chat-heading-action is-active' : 'chat-heading-action'} type="button" onClick={() => setAlliancePanel((current) => current === 'invite' ? '' : 'invite')}>
-                        <UserPlus size={16} /> Einladen
+                        <UserPlus size={16} /> Invite
                       </button>
                     ) : null}
                     <button className={alliancePanel === 'members' ? 'chat-heading-action is-active' : 'chat-heading-action'} type="button" onClick={() => setAlliancePanel((current) => current === 'members' ? '' : 'members')}>
-                      <Users size={16} /> Mitglieder
+                      <Users size={16} /> Members
                     </button>
                   </>
                 ) : null}
@@ -941,35 +941,35 @@ export default function ChatPage() {
                 {alliancePanel === 'invite' && canManageAllianceActiveRoom ? (
                   <>
                     <div>
-                      <h3><UserPlus size={17} /> Einladen</h3>
-                      <p>Nutzer direkt hinzufügen, offene Anfragen freigeben oder einen Einladungscode erstellen.</p>
+                      <h3><UserPlus size={17} /> Invite</h3>
+                      <p>Add users directly, approve join requests, or create an invite code.</p>
                     </div>
                     <div className="chat-invite-code-box" translate="no">
-                      <span>Einladungscode</span>
-                      <strong>{allianceManagementRoom.inviteCode || 'Noch keiner erstellt'}</strong>
-                      <button type="button" onClick={handleGenerateAllianceInviteCode} disabled={allianceAction}>Code erstellen</button>
+                      <span>Invite code</span>
+                      <strong>{allianceManagementRoom.inviteCode || 'None created yet'}</strong>
+                      <button type="button" onClick={handleGenerateAllianceInviteCode} disabled={allianceAction}>Create code</button>
                     </div>
                     <UserPicker
                       filteredProfiles={allianceInviteProfiles}
                       selectedUserIds={inviteUserIds}
                       setUserSearch={setUserSearch}
-                      title="User einladen"
+                      title="Invite users"
                       toggleUser={(uid) => toggleSelectedUser(uid, setInviteUserIds)}
                       userSearch={userSearch}
                     />
                     <button className="user-auth-secondary" type="button" onClick={handleAddAllianceMembers} disabled={!inviteUserIds.length || allianceAction}>
-                      <UserPlus size={17} /> Hinzufügen
+                      <UserPlus size={17} /> Add
                     </button>
                     <div className="chat-user-picker">
-                      <label>Beitrittsanfragen</label>
+                      <label>Join requests</label>
                       <div className="chat-user-options">
                         {pendingAllianceRequests.length ? pendingAllianceRequests.map((request) => (
                           <div className="chat-member-row" key={request.uid} translate="no">
                             <span>{request.senderLabel || request.displayName || 'Player'}</span>
-                            <button type="button" onClick={() => handleApproveAllianceRequest(request.uid)} disabled={allianceAction}>Freigeben</button>
-                            <button type="button" onClick={() => handleRejectAllianceRequest(request.uid)} disabled={allianceAction}>Ablehnen</button>
+                            <button type="button" onClick={() => handleApproveAllianceRequest(request.uid)} disabled={allianceAction}>Approve</button>
+                            <button type="button" onClick={() => handleRejectAllianceRequest(request.uid)} disabled={allianceAction}>Reject</button>
                           </div>
-                        )) : <p>Keine offenen Anfragen.</p>}
+                        )) : <p>No pending requests.</p>}
                       </div>
                     </div>
                   </>
@@ -978,21 +978,21 @@ export default function ChatPage() {
                 {alliancePanel === 'settings' && canManageAllianceActiveRoom ? (
                   <>
                     <div>
-                      <h3><Settings size={17} /> Einstellungen</h3>
-                      <p>{isAllianceSubRoomActive ? 'Subchat-Typ einstellen. Rollen werden im Haupt-Allianzchat vergeben.' : 'Owner/Admin-Rechte vergeben oder Mitglieder entfernen.'}</p>
+                      <h3><Settings size={17} /> Settings</h3>
+                      <p>{isAllianceSubRoomActive ? 'Set the sub chat type. Roles are managed in the main alliance chat.' : 'Give owner/admin rights or remove members.'}</p>
                     </div>
                     {isAllianceSubRoomActive ? (
                       <div className="chat-subroom-setting">
-                        <label htmlFor="alliance-subroom-audience">Subchat Typ</label>
+                        <label htmlFor="alliance-subroom-audience">Sub chat type</label>
                         <select id="alliance-subroom-audience" value={activeRoom.audience === 'leaders' ? 'leaders' : 'members'} onChange={(event) => handleSetAllianceSubRoomAudience(event.target.value)} disabled={allianceAction}>
-                          <option value="members">Mitglieder Chat</option>
+                          <option value="members">Member chat</option>
                           <option value="leaders">Leader Chat</option>
                         </select>
                       </div>
                     ) : null}
                     {isMainAllianceRoomActive ? (
                       <div className="chat-user-picker">
-                        <label>Rechte</label>
+                        <label>Permissions</label>
                         <div className="chat-user-options">
                           {allianceMemberProfiles.length ? allianceMemberProfiles.map((member) => {
                             const role = allianceManagementRoom.memberRoles?.[member.uid] || 'member';
@@ -1003,19 +1003,19 @@ export default function ChatPage() {
                                 {canChangeAllianceRoles && !isSystemOwner ? (
                                   <>
                                     <button type="button" onClick={() => handleSetAllianceRole(member.uid, role === 'owner' ? 'member' : 'owner')} disabled={allianceAction}>
-                                      {role === 'owner' ? 'Owner entfernen' : 'Owner geben'}
+                                      {role === 'owner' ? 'Remove owner' : 'Make owner'}
                                     </button>
                                     <button type="button" onClick={() => handleSetAllianceRole(member.uid, role === 'admin' ? 'member' : 'admin')} disabled={allianceAction}>
-                                      {role === 'admin' ? 'Admin entfernen' : 'Admin geben'}
+                                      {role === 'admin' ? 'Remove admin' : 'Make admin'}
                                     </button>
                                   </>
                                 ) : null}
-                                {!isSystemOwner ? <button type="button" onClick={() => handleRemoveAllianceMember(member.uid)} disabled={allianceAction}>Entfernen</button> : null}
+                                {!isSystemOwner ? <button type="button" onClick={() => handleRemoveAllianceMember(member.uid)} disabled={allianceAction}>Remove</button> : null}
                               </div>
                             );
-                          }) : <p>Noch keine Mitglieder geladen.</p>}
+                          }) : <p>No members loaded yet.</p>}
                           {allianceMemberProfiles.length > 0 && allianceMemberProfiles.every((member) => allianceManagementRoom.ownerUid === member.uid) ? (
-                            <p>Es gibt noch kein weiteres Mitglied, dem du Owner/Admin geben kannst. Lade erst jemanden ein oder gib eine Beitrittsanfrage frei.</p>
+                            <p>There is no other member you can make owner/admin yet. Invite someone or approve a join request first.</p>
                           ) : null}
                         </div>
                       </div>
@@ -1026,8 +1026,8 @@ export default function ChatPage() {
                 {alliancePanel === 'members' ? (
                   <>
                     <div>
-                      <h3><Users size={17} /> Mitglieder</h3>
-                      <p>Freigegebene Mitglieder.</p>
+                      <h3><Users size={17} /> Members</h3>
+                      <p>Approved members.</p>
                     </div>
                     <div className="chat-member-list" translate="no">
                       {allianceMemberProfiles.length ? allianceMemberProfiles.map((member) => (
@@ -1037,7 +1037,7 @@ export default function ChatPage() {
                           </span>
                           <strong>{member.displayName || 'Player'}</strong>
                         </span>
-                      )) : <span>Noch keine Mitglieder geladen.</span>}
+                      )) : <span>No members loaded yet.</span>}
                     </div>
                   </>
                 ) : null}
@@ -1070,7 +1070,7 @@ export default function ChatPage() {
                 ) : null}
                 {allianceAccessState !== 'canCreate' ? (
                   <form className="chat-invite-code-form" onSubmit={handleJoinAllianceByInviteCode}>
-                    <label htmlFor="alliance-invite-code">Einladungscode</label>
+                    <label htmlFor="alliance-invite-code">Invite code</label>
                     <div>
                       <input
                         id="alliance-invite-code"
@@ -1081,7 +1081,7 @@ export default function ChatPage() {
                         value={allianceInviteCode}
                       />
                       <button className="user-auth-secondary" type="submit" disabled={!allianceInviteCode.trim() || allianceAction}>
-                        Beitreten
+                        Join
                       </button>
                     </div>
                   </form>
