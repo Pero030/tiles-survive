@@ -789,7 +789,7 @@ export default function ChatPage() {
 
   if (!user) {
     return (
-      <section className="page-shell page-top chat-page notranslate" translate="no">
+      <section className="page-shell page-top chat-page">
         <div className="chat-locked-panel">
           <span><ShieldCheck size={30} /></span>
           <h1>Alliance Chat</h1>
@@ -801,7 +801,7 @@ export default function ChatPage() {
   }
 
   return (
-    <section className="page-shell page-top chat-page notranslate" translate="no">
+    <section className="page-shell page-top chat-page">
       <div className="chat-shell chat-room-shell">
         <header className="chat-header">
           <span><MessageCircle size={28} /></span>
@@ -815,7 +815,7 @@ export default function ChatPage() {
         <div className="chat-room-tabs" role="tablist" aria-label="Chat areas">
           <button className={roomCategory === 'alliance' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('alliance')}>
             <ShieldCheck size={20} />
-            <span>Allianz</span>
+            <span>Alliance</span>
           </button>
           <button className={roomCategory === 'global' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('global')}>
             <MessageCircle size={20} />
@@ -824,7 +824,7 @@ export default function ChatPage() {
           </button>
           <button className={roomCategory === 'private' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('private')}>
             <LockKeyhole size={20} />
-            <span>Privat</span>
+            <span>Private</span>
             {privateRooms.some((room) => hasUnreadMessages(room)) ? <strong>{privateRooms.filter((room) => hasUnreadMessages(room)).length}</strong> : null}
           </button>
         </div>
@@ -836,17 +836,17 @@ export default function ChatPage() {
                 <h2>Alliance</h2>
                 {liveAllianceRoom ? (
                   <>
-                    <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => setActiveRoomId(liveAllianceRoom.id)} translate="no">
+                    <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => setActiveRoomId(liveAllianceRoom.id)}>
                       <ShieldCheck size={17} />
-                      <span>{liveAllianceRoom.title}</span>
+                      <span translate="no">{liveAllianceRoom.title}</span>
                       <small>{allianceAccessState === 'member' ? 'Approved members only' : allianceAccessState === 'pending' ? 'Request pending' : 'Approval required'}</small>
                       {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
                     </button>
                     <div className="chat-alliance-subrooms">
                       {allianceSubRooms.map((room) => (
-                        <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)} translate="no">
+                        <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)}>
                           <MessageCircle size={15} />
-                          <span>{room.title}</span>
+                          <span translate="no">{room.title}</span>
                           <small>Alliance sub chat</small>
                           {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
                         </button>
@@ -967,9 +967,13 @@ export default function ChatPage() {
                       <h3><UserPlus size={17} /> Invite</h3>
                       <p>Add users directly, approve join requests, or create an invite code.</p>
                     </div>
-                    <div className="chat-invite-code-box" translate="no">
+                    <div className="chat-invite-code-box">
                       <span>Invite code</span>
-                      <strong>{allianceManagementRoom.inviteCode || 'None created yet'}</strong>
+                      {allianceManagementRoom.inviteCode ? (
+                        <strong translate="no">{allianceManagementRoom.inviteCode}</strong>
+                      ) : (
+                        <strong>None created yet</strong>
+                      )}
                       <button type="button" onClick={handleGenerateAllianceInviteCode} disabled={allianceAction}>Create code</button>
                     </div>
                     <UserPicker
@@ -987,8 +991,8 @@ export default function ChatPage() {
                       <label>Join requests</label>
                       <div className="chat-user-options">
                         {pendingAllianceRequests.length ? pendingAllianceRequests.map((request) => (
-                          <div className="chat-member-row" key={request.uid} translate="no">
-                            <span>{request.senderLabel || request.displayName || 'Player'}</span>
+                          <div className="chat-member-row" key={request.uid}>
+                            <span translate="no">{request.senderLabel || request.displayName || 'Player'}</span>
                             <button type="button" onClick={() => handleApproveAllianceRequest(request.uid)} disabled={allianceAction}>Approve</button>
                             <button type="button" onClick={() => handleRejectAllianceRequest(request.uid)} disabled={allianceAction}>Reject</button>
                           </div>
@@ -1037,8 +1041,8 @@ export default function ChatPage() {
                             const role = allianceManagementRoom.memberRoles?.[member.uid] || 'member';
                             const isSystemOwner = allianceManagementRoom.ownerUid === member.uid;
                             return (
-                              <div className="chat-member-row" key={member.uid} translate="no">
-                                <span>{formatUserOption(member)} - {isSystemOwner ? 'owner' : role}</span>
+                              <div className="chat-member-row" key={member.uid}>
+                                <span translate="no">{formatUserOption(member)} - {isSystemOwner ? 'owner' : role}</span>
                                 {canChangeAllianceRoles && !isSystemOwner ? (
                                   <>
                                     <button type="button" onClick={() => handleSetAllianceRole(member.uid, role === 'owner' ? 'member' : 'owner')} disabled={allianceAction}>
@@ -1068,9 +1072,9 @@ export default function ChatPage() {
                       <h3><Users size={17} /> Members</h3>
                       <p>Approved members.</p>
                     </div>
-                    <div className="chat-member-list" translate="no">
+                    <div className="chat-member-list">
                       {allianceMemberProfiles.length ? allianceMemberProfiles.map((member) => (
-                        <span className="chat-member-pill" key={member.uid}>
+                        <span className="chat-member-pill" key={member.uid} translate="no">
                           <span className={member.photoURL ? 'chat-member-pill-avatar has-photo' : 'chat-member-pill-avatar'}>
                             {member.photoURL ? <img src={member.photoURL} alt="" /> : String(member.displayName || 'P').trim().slice(0, 1).toUpperCase()}
                           </span>
@@ -1159,7 +1163,7 @@ export default function ChatPage() {
                       <strong>{message.senderLabel || message.displayName || 'Player'}</strong>
                       {message.createdAt ? <time>{formatChatTime(message.createdAt)}</time> : null}
                     </header>
-                    <p>{renderMessageText(getDisplayedMessageText(message), activeRoomMemberProfiles)}</p>
+                    <p translate="no">{renderMessageText(getDisplayedMessageText(message), activeRoomMemberProfiles)}</p>
                   </div>
                 </article>
               )) : (
