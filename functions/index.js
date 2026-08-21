@@ -144,6 +144,32 @@ const assertCanReadRoom = async ({ roomId, uid }) => {
   throw new HttpsError('permission-denied', 'You cannot read this chat.');
 };
 
+exports.getPublicAssetDataUrl = onCall({ region: 'us-central1', cors: allowedFunctionOrigins }, async (request) => {
+  const sourceUrl = String(request.data?.url || '').trim();
+  const publicBaseUrl = cleanConfigValue(r2PublicUrl.value()).replace(/\/+$/, '');
+
+  if (!sourceUrl || !publicBaseUrl || !sourceUrl.startsWith(`${publicBaseUrl}/`)) {
+    throw new HttpsError('invalid-argument', 'Only configured public R2 assets can be exported.');
+  }
+
+  const response = await fetch(sourceUrl);
+  if (!response.ok) {
+    throw new HttpsError('not-found', 'Asset could not be loaded for export.');
+  }
+
+  const contentType = String(response.headers.get('content-type') || '').split(';')[0].toLowerCase();
+  if (!allowedAvatarTypes.has(contentType)) {
+    throw new HttpsError('invalid-argument', 'Only JPG, PNG, WEBP, or GIF images can be exported.');
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength > 9 * 1024 * 1024) {
+    throw new HttpsError('resource-exhausted', 'Image is too large to export in the browser.');
+  }
+
+  const base64 = Buffer.from(arrayBuffer).toString('base64');
+  return { dataUrl: `data:${contentType};base64,${base64}` };
+});
 exports.translateChatMessage = onCall({ region: 'us-central1', cors: allowedFunctionOrigins }, async (request) => {
   const uid = request.auth?.uid;
   if (!uid) {
