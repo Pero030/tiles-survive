@@ -1,7 +1,8 @@
-import { arrayRemove, arrayUnion, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
+import { arrayRemove, arrayUnion, collection, doc, onSnapshot, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './firebase.js';
 
 const accessRef = doc(db, 'admin', 'access');
+const adminUsersRef = collection(db, 'adminUsers');
 
 export const normalizeAdminEmail = (email) => String(email || '').trim().toLowerCase();
 
@@ -19,6 +20,25 @@ export const subscribeToAdminAccess = (onData, onError) => {
         active: data.active !== false,
         emails: Array.isArray(data.emails) ? data.emails.map(normalizeAdminEmail).filter(Boolean).sort() : [],
       });
+    },
+    (error) => {
+      onError?.(error);
+    },
+  );
+};
+
+export const subscribeToAdminUsers = (onData, onError) => {
+  if (typeof window === 'undefined' || !isFirebaseConfigured()) {
+    onData([]);
+    return () => {};
+  }
+
+  return onSnapshot(
+    adminUsersRef,
+    (snapshot) => {
+      onData(snapshot.docs
+        .map((entry) => ({ id: entry.id, ...entry.data() }))
+        .filter((entry) => entry.active !== false && (entry.role === 'admin' || entry.isAdmin === true)));
     },
     (error) => {
       onError?.(error);
