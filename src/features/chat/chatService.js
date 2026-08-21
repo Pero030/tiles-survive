@@ -23,11 +23,23 @@ import { authService } from '../auth/authService.js';
 const chatRoomsRef = collection(db, 'chatRooms');
 
 const normalizeMessage = (message) => String(message || '').trim().slice(0, 800);
+const normalizeImageAttachment = (attachment = {}) => {
+  const url = String(attachment.url || '').trim();
+  if (!url) return null;
+
+  return {
+    url,
+    name: String(attachment.name || 'Chat image').trim().slice(0, 120),
+    type: String(attachment.type || 'image').trim().slice(0, 40),
+    size: Number(attachment.size || 0),
+  };
+};
 const normalizeServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
 const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 8);
 const normalizeRoomTitle = (title) => String(title || '').trim().slice(0, 60);
 const normalizeInviteCode = (code) => String(code || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 12);
 const normalizeLanguageCode = (languageCode) => String(languageCode || '').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'en';
+const isDeleteConfirmation = (value) => ['delete', 'loeschen', 'loschen', 'löschen'].includes(String(value || '').trim().toLowerCase());
 
 const getRoomRef = (roomId) => doc(db, 'chatRooms', roomId);
 const getRoomMessagesRef = (roomId) => collection(db, 'chatRooms', roomId, 'messages');
@@ -189,8 +201,27 @@ const canManageAllianceRoom = (room, user) => {
 
 const canChangeAllianceRoles = (room, user) => room?.type === 'alliance' && Boolean(user?.uid) && (room.ownerUid === user.uid || room.memberRoles?.[user.uid] === 'owner');
 const canCreateAllianceSubRoom = (room, user) => room?.type === 'alliance' && Boolean(user?.uid) && (room.ownerUid === user.uid || room.memberRoles?.[user.uid] === 'owner');
+const canDeleteAllianceRoom = (room, user) => Boolean(room?.id && user?.uid && (room.ownerUid === user.uid || room.memberRoles?.[user.uid] === 'owner'));
 
 const canDeleteRoom = (room, user) => room?.type === 'private' && Boolean(user?.uid) && room.ownerUid === user.uid;
+
+const deleteRoomMessages = async (roomId) => {
+  let hasMoreMessages = true;
+
+  while (hasMoreMessages) {
+    const messageSnapshots = await getDocs(query(getRoomMessagesRef(roomId), limit(400)));
+    if (messageSnapshots.empty) {
+      hasMoreMessages = false;
+      continue;
+    }
+
+    const batch = writeBatch(db);
+    messageSnapshots.docs.forEach((messageDoc) => {
+      batch.delete(messageDoc.ref);
+    });
+    await batch.commit();
+  }
+};
 
 const assertAllianceManager = async (roomId) => {
   if (!auth.currentUser) {
@@ -239,6 +270,7 @@ export const chatService = {
   canManageAllianceRoom,
   canChangeAllianceRoles,
   canCreateAllianceSubRoom,
+  canDeleteAllianceRoom,
 
   getAllianceAccessState(room, user, profile = {}) {
     if (!room || room.type !== 'alliance' || !user) return 'none';
@@ -390,13 +422,78 @@ export const chatService = {
       throw new Error('Only the creator can delete this private chat.');
     }
 
-    const messageSnapshots = await getDocs(query(getRoomMessagesRef(roomId), limit(100)));
+    await deleteRoomMessages(roomId);
+    await deleteDoc(getRoomRef(roomId));
+  },
+
+  async deleteAllianceSubRoom(roomId, confirmationWord) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before deleting an alliance sub chat.');
+    }
+
+    if (!isDeleteConfirmation(confirmationWord)) {
+      throw new Error('Type Delete first to confirm.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      return;
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (room.type !== 'allianceSub') {
+      throw new Error('Open an alliance sub chat first.');
+    }
+
+    let managerRoom = room;
+    if (room.parentRoomId) {
+      const parentSnapshot = await getDoc(getRoomRef(room.parentRoomId));
+      managerRoom = parentSnapshot.exists() ? { id: parentSnapshot.id, ...parentSnapshot.data() } : room;
+    }
+
+    if (!canDeleteAllianceRoom(managerRoom, auth.currentUser)) {
+      throw new Error('Only an alliance chat owner can delete this sub chat.');
+    }
+
+    await deleteRoomMessages(room.id);
+    await deleteDoc(getRoomRef(room.id));
+  },
+
+  async deleteAllianceRoom(roomId, confirmationWord) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before deleting an alliance chat.');
+    }
+
+    if (!isDeleteConfirmation(confirmationWord)) {
+      throw new Error('Type Delete first to confirm.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      return;
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (room.type !== 'alliance') {
+      throw new Error('Open the main alliance chat first.');
+    }
+
+    if (!canDeleteAllianceRoom(room, auth.currentUser)) {
+      throw new Error('Only an alliance chat owner can delete this alliance chat.');
+    }
+
+    const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', room.id)));
+    const roomsToDelete = [room, ...subRoomsSnapshot.docs.map((roomDoc) => ({ id: roomDoc.id, ...roomDoc.data() })).filter((subRoom) => subRoom.type === 'allianceSub')];
+
+    for (const roomToDelete of roomsToDelete) {
+      await deleteRoomMessages(roomToDelete.id);
+    }
+
     const batch = writeBatch(db);
-    messageSnapshots.docs.forEach((messageDoc) => {
-      batch.delete(messageDoc.ref);
+    roomsToDelete.forEach((roomToDelete) => {
+      batch.delete(getRoomRef(roomToDelete.id));
     });
     await batch.commit();
-    await deleteDoc(getRoomRef(roomId));
   },
 
   async createAllianceChat(profileOverride = null) {
@@ -818,14 +915,15 @@ export const chatService = {
     await batch.commit();
   },
 
-  async sendMessage(room, message) {
+  async sendMessage(room, message, attachment = null) {
     if (!auth.currentUser) {
       throw new Error('Sign in before writing in chat.');
     }
 
     const text = normalizeMessage(message);
-    if (!text) {
-      throw new Error('Enter a message first.');
+    const image = normalizeImageAttachment(attachment);
+    if (!text && !image) {
+      throw new Error('Enter a message or choose an image first.');
     }
 
     const profile = await getCurrentProfile();
@@ -862,6 +960,7 @@ export const chatService = {
 
     await addDoc(getRoomMessagesRef(roomId), {
       text,
+      ...(image ? { image } : {}),
       senderLabel: buildSenderLabel(auth.currentUser, profile),
       uid: auth.currentUser.uid,
       gameServer: normalizeServer(profile.gameServer),
