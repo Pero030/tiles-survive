@@ -5475,6 +5475,23 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   margin: 0;
 }
 
+.chat-read-only-note {
+  align-items: center;
+  background: linear-gradient(180deg, #fff9df 0%, #fff2bf 100%);
+  border: 2px solid rgba(255, 138, 37, 0.22);
+  border-radius: 0.9rem;
+  color: #103a52;
+  display: flex;
+  gap: 0.55rem;
+  font-weight: 950;
+  padding: 0.75rem 0.9rem;
+}
+
+.chat-read-only-note svg {
+  color: #247fc2;
+  flex: 0 0 auto;
+}
+
 .chat-compose {
   align-items: end;
   display: grid;
