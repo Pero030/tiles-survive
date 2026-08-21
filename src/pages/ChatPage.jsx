@@ -236,6 +236,7 @@ export default function ChatPage() {
   const activeRoom = rooms.find((room) => room.id === activeRoomId) || liveGlobalRoom;
   const allianceAccessState = chatService.getAllianceAccessState(liveAllianceRoom || allianceRoom, user, profile);
   const canUseActiveRoom = chatService.canUseRoom(activeRoom, user, profile);
+  const canWriteActiveRoom = chatService.canWriteRoom(activeRoom, user, profile);
   const canInviteActiveRoom = chatService.canInviteToRoom(activeRoom, user);
   const canDeleteActiveRoom = chatService.canDeleteRoom(activeRoom, user);
   const allianceManagementRoom = (activeRoom.type === 'alliance' || activeRoom.type === 'allianceSub') && liveAllianceRoom ? liveAllianceRoom : activeRoom;
@@ -693,6 +694,21 @@ export default function ChatPage() {
     }
   };
 
+  const handleSetAllianceSubRoomWriteAccess = async (memberCanWrite) => {
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.setAllianceSubRoomWriteAccess(activeRoom.id, memberCanWrite);
+      setAllianceSubRooms((current) => current.map((room) => room.id === activeRoom.id ? { ...room, memberCanWrite } : room));
+      setStatus(memberCanWrite ? 'Members can now write in this sub chat.' : 'Members can now only read this sub chat.');
+    } catch (error) {
+      setStatus(error.message || 'Sub chat write setting could not be changed.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
   const handleDeletePrivateRoom = async () => {
     if (!activeRoom?.id || activeRoom.type !== 'private') {
       return;
@@ -1023,13 +1039,22 @@ export default function ChatPage() {
                       </div>
                     </form>
                     {isAllianceSubRoomActive ? (
-                      <div className="chat-subroom-setting">
-                        <label htmlFor="alliance-subroom-audience">Sub chat type</label>
-                        <select id="alliance-subroom-audience" value={activeRoom.audience === 'leaders' ? 'leaders' : 'members'} onChange={(event) => handleSetAllianceSubRoomAudience(event.target.value)} disabled={allianceAction}>
-                          <option value="members">Member chat</option>
-                          <option value="leaders">Leader Chat</option>
-                        </select>
-                      </div>
+                      <>
+                        <div className="chat-subroom-setting">
+                          <label htmlFor="alliance-subroom-audience">Sub chat type</label>
+                          <select id="alliance-subroom-audience" value={activeRoom.audience === 'leaders' ? 'leaders' : 'members'} onChange={(event) => handleSetAllianceSubRoomAudience(event.target.value)} disabled={allianceAction}>
+                            <option value="members">Member chat</option>
+                            <option value="leaders">Leader chat</option>
+                          </select>
+                        </div>
+                        <div className="chat-subroom-setting">
+                          <label htmlFor="alliance-subroom-writing">Member writing</label>
+                          <select id="alliance-subroom-writing" value={activeRoom.memberCanWrite === false ? 'readOnly' : 'canWrite'} onChange={(event) => handleSetAllianceSubRoomWriteAccess(event.target.value === 'canWrite')} disabled={allianceAction}>
+                            <option value="canWrite">Members can write</option>
+                            <option value="readOnly">Members can only read</option>
+                          </select>
+                        </div>
+                      </>
                     ) : null}
                     {isMainAllianceRoomActive ? (
                       <div className="chat-user-picker">
@@ -1179,7 +1204,14 @@ export default function ChatPage() {
 
             {status ? <strong className="chat-status">{status}</strong> : null}
 
-            {canUseActiveRoom ? <form className="chat-compose" onSubmit={handleSubmit}>
+            {canUseActiveRoom && !canWriteActiveRoom ? (
+              <div className="chat-read-only-note">
+                <LockKeyhole size={18} />
+                <span>Only alliance chat owner/admins can write in this sub chat. Members can read only.</span>
+              </div>
+            ) : null}
+
+            {canUseActiveRoom && canWriteActiveRoom ? <form className="chat-compose" onSubmit={handleSubmit}>
               <label className="sr-only" htmlFor="chat-message">Message</label>
               <div className="chat-compose-field">
                 <textarea
