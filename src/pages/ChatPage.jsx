@@ -161,6 +161,7 @@ export default function ChatPage() {
   const [userSearch, setUserSearch] = useState('');
   const [allianceAction, setAllianceAction] = useState(false);
   const [allianceInviteCode, setAllianceInviteCode] = useState('');
+  const [allianceChatName, setAllianceChatName] = useState('');
   const [roomCategory, setRoomCategory] = useState('alliance');
   const [alliancePanel, setAlliancePanel] = useState('');
   const listRef = useRef(null);
@@ -334,6 +335,14 @@ export default function ChatPage() {
       return next;
     });
   }, [activeRoom?.id, activeRoom?.lastMessageAt, activeRoom?.updatedAt, messages, readByRoom, user?.uid]);
+
+  useEffect(() => {
+    if (activeRoom?.type === 'alliance' || activeRoom?.type === 'allianceSub') {
+      setAllianceChatName(activeRoom.title || '');
+    } else {
+      setAllianceChatName('');
+    }
+  }, [activeRoom?.id, activeRoom?.title, activeRoom?.type]);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
@@ -551,6 +560,21 @@ export default function ChatPage() {
       setStatus(role === 'admin' ? 'Member is now an alliance chat admin.' : 'Member role updated.');
     } catch (error) {
       setStatus(error.message || 'Role could not be changed.');
+    } finally {
+      setAllianceAction(false);
+    }
+  };
+
+  const handleRenameAllianceChat = async (event) => {
+    event.preventDefault();
+    setStatus('');
+    setAllianceAction(true);
+
+    try {
+      await chatService.renameAllianceRoom(activeRoom.id, allianceChatName);
+      setStatus('Chat name updated.');
+    } catch (error) {
+      setStatus(error.message || 'Chat name could not be changed.');
     } finally {
       setAllianceAction(false);
     }
@@ -980,6 +1004,22 @@ export default function ChatPage() {
                       <h3><Settings size={17} /> Settings</h3>
                       <p>{isAllianceSubRoomActive ? 'Set the sub chat type. Roles are managed in the main alliance chat.' : 'Give owner/admin rights or remove members.'}</p>
                     </div>
+                    <form className="chat-name-setting" onSubmit={handleRenameAllianceChat}>
+                      <label htmlFor="alliance-chat-name">Chat name</label>
+                      <div>
+                        <input
+                          id="alliance-chat-name"
+                          maxLength={60}
+                          onChange={(event) => setAllianceChatName(event.target.value)}
+                          placeholder={activeRoom.title || 'Alliance chat'}
+                          type="text"
+                          value={allianceChatName}
+                        />
+                        <button type="submit" disabled={allianceAction || !allianceChatName.trim() || allianceChatName.trim() === (activeRoom.title || '').trim()}>
+                          Save
+                        </button>
+                      </div>
+                    </form>
                     {isAllianceSubRoomActive ? (
                       <div className="chat-subroom-setting">
                         <label htmlFor="alliance-subroom-audience">Sub chat type</label>
