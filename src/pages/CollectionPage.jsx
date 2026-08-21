@@ -574,9 +574,7 @@ function WorldMapFeature({ entry }) {
     });
 
     try {
-      const imageUrl = assetPath(entry.image.src);
-      const imageDataUrl = await getPublicAssetDataUrl(imageUrl);
-      const image = await loadImage(imageDataUrl);
+      const image = await loadImage(assetPath(entry.image.src));
       const canvas = document.createElement('canvas');
       canvas.width = image.naturalWidth || 1920;
       canvas.height = image.naturalHeight || 1080;
@@ -614,7 +612,7 @@ function WorldMapFeature({ entry }) {
       setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
     } catch (error) {
       console.error(error);
-      window.alert('PNG download could not be created. Please try again after the page reloads.');
+      window.alert('PNG download could not be created: ' + (error.message || 'Unknown error'));
     }
   };
 
