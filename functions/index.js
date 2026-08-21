@@ -59,6 +59,30 @@ const restoreMentions = (text, mentions) => mentions.reduce(
   String(text || ''),
 );
 
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const protectTerms = (text, terms = []) => {
+  let protectedText = String(text || '');
+  const protectedTerms = [];
+
+  [...new Set(terms.map((term) => String(term || '').trim()).filter((term) => term.length >= 2))]
+    .sort((first, second) => second.length - first.length)
+    .forEach((term) => {
+      const token = `TSPROTECTED${protectedTerms.length}TOKEN`;
+      const pattern = new RegExp(escapeRegExp(term), 'g');
+      if (!pattern.test(protectedText)) return;
+      protectedTerms.push({ token, value: term });
+      protectedText = protectedText.replace(pattern, token);
+    });
+
+  return { protectedText, protectedTerms };
+};
+
+const restoreTerms = (text, protectedTerms) => protectedTerms.reduce(
+  (value, term) => value.replaceAll(term.token, term.value),
+  String(text || ''),
+);
+
 const getR2Client = () => new S3Client({
   region: 'auto',
   endpoint: `https://${cleanConfigValue(r2AccountId.value())}.r2.cloudflarestorage.com`,
@@ -153,13 +177,19 @@ exports.translateChatMessage = onCall({ region: 'us-central1', cors: allowedFunc
     return { translatedText: cachedTranslation, targetLanguage };
   }
 
-  const { protectedText, mentions } = protectMentions(originalText);
+  const { protectedText: mentionProtectedText, mentions } = protectMentions(originalText);
+  const protectedNameTerms = [
+    message.displayName,
+    message.senderLabel,
+    message.uid && message.uid !== '__system__' ? message.uid : '',
+  ];
+  const { protectedText, protectedTerms } = protectTerms(mentionProtectedText, protectedNameTerms);
   const [translatedText] = await getTranslateClient().translate(protectedText, {
     from: message.language || undefined,
     to: targetLanguage,
     format: 'text',
   });
-  const restoredText = restoreMentions(translatedText, mentions);
+  const restoredText = restoreMentions(restoreTerms(translatedText, protectedTerms), mentions);
 
   await messageRef.set({
     translations: {
