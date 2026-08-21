@@ -1,5 +1,5 @@
 import { onAuthStateChanged } from 'firebase/auth';
-import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db, isFirebaseConfigured } from './firebase.js';
 
 const usersCollectionRef = collection(db, 'users');
@@ -33,7 +33,15 @@ export const saveWebsiteUserPresence = async (user, online = true) => {
     return;
   }
 
-  await setDoc(doc(db, 'users', user.uid), buildUserRecord(user, online), { merge: true });
+  const userRef = doc(db, 'users', user.uid);
+  const snapshot = await getDoc(userRef);
+  const record = buildUserRecord(user, online);
+
+  if (!snapshot.exists()) {
+    record.createdAt = serverTimestamp();
+  }
+
+  await setDoc(userRef, record, { merge: true });
 };
 
 const stopHeartbeat = () => {
