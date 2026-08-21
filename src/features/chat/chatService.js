@@ -69,6 +69,34 @@ const buildJoinRequest = (user, profile = {}) => ({
   requestedAt: serverTimestamp(),
 });
 
+const getPublicProfile = async (uid) => {
+  if (!uid) return {};
+
+  const profileSnapshot = await getDoc(doc(db, 'publicProfiles', uid));
+  return profileSnapshot.exists() ? { uid, ...profileSnapshot.data() } : { uid };
+};
+
+const getAllianceJoinName = (profile = {}) => String(profile.displayName || 'Player').trim() || 'Player';
+
+const addAllianceJoinMessage = async (roomId, profile = {}) => {
+  const displayName = getAllianceJoinName(profile);
+
+  await addDoc(getRoomMessagesRef(roomId), {
+    type: 'system',
+    eventType: 'allianceJoined',
+    text: `${displayName} joined the alliance chat.`,
+    uid: '__system__',
+    displayName,
+    photoURL: profile.photoURL || '',
+    createdAt: serverTimestamp(),
+  });
+
+  await setDoc(getRoomRef(roomId), {
+    lastMessageAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+};
+
 const ensureGlobalRoom = async () => {
   await setDoc(getRoomRef('global'), {
     id: 'global',
@@ -464,6 +492,7 @@ export const chatService = {
     const room = await assertAllianceManager(roomId);
     if (!uid || room.memberUids?.[uid]) return;
 
+    const requestProfile = room.joinRequests?.[uid] || await getPublicProfile(uid);
     const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', roomId)));
     const batch = writeBatch(db);
     batch.update(getRoomRef(roomId), {
@@ -486,6 +515,7 @@ export const chatService = {
     });
 
     await batch.commit();
+    await addAllianceJoinMessage(roomId, requestProfile);
   },
 
   async rejectAllianceRequest(roomId, uid) {
@@ -505,6 +535,7 @@ export const chatService = {
       return;
     }
 
+    const addedProfiles = await Promise.all(uniqueMemberUids.map((uid) => getPublicProfile(uid)));
     const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', roomId)));
     const batch = writeBatch(db);
     batch.update(getRoomRef(roomId), {
@@ -533,6 +564,7 @@ export const chatService = {
     });
 
     await batch.commit();
+    await Promise.all(addedProfiles.map((addedProfile) => addAllianceJoinMessage(roomId, addedProfile)));
   },
 
   async setAllianceMemberRole(roomId, uid, role) {
@@ -605,6 +637,42 @@ export const chatService = {
     });
   },
 
+  async renameAllianceRoom(roomId, title) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before changing chat settings.');
+    }
+
+    const roomTitle = normalizeRoomTitle(title);
+    if (!roomTitle) {
+      throw new Error('Enter a chat name first.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      throw new Error('Alliance chat not found.');
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (room.type !== 'alliance' && room.type !== 'allianceSub') {
+      throw new Error('Open an alliance chat first.');
+    }
+
+    let managerRoom = room;
+    if (room.type === 'allianceSub' && room.parentRoomId) {
+      const parentSnapshot = await getDoc(getRoomRef(room.parentRoomId));
+      managerRoom = parentSnapshot.exists() ? { id: parentSnapshot.id, ...parentSnapshot.data() } : room;
+    }
+
+    if (!canManageAllianceRoom(managerRoom, auth.currentUser)) {
+      throw new Error('Only alliance chat owner/admins can rename chats.');
+    }
+
+    await updateDoc(getRoomRef(roomId), {
+      title: roomTitle,
+      updatedAt: serverTimestamp(),
+    });
+  },
+
   async generateAllianceInviteCode(roomId) {
     const room = await assertAllianceManager(roomId);
     if (room.type !== 'alliance') {
@@ -671,6 +739,11 @@ export const chatService = {
     });
 
     await batch.commit();
+    await addAllianceJoinMessage(roomDoc.id, {
+      uid: auth.currentUser.uid,
+      displayName: auth.currentUser.displayName || profile.displayName || 'Player',
+      photoURL: auth.currentUser.photoURL || profile.photoURL || '',
+    });
     return roomDoc.id;
   },
 
