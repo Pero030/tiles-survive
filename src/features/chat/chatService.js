@@ -23,7 +23,9 @@ import { authService } from '../auth/authService.js';
 const chatRoomsRef = collection(db, 'chatRooms');
 
 const normalizeMessage = (message) => String(message || '').trim().slice(0, 800);
-const normalizeImageAttachment = (attachment = {}) => {
+const normalizeImageAttachment = (attachment) => {
+  if (!attachment || typeof attachment !== 'object') return null;
+
   const url = String(attachment.url || '').trim();
   if (!url) return null;
 
