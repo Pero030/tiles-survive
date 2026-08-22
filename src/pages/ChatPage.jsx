@@ -784,7 +784,7 @@ export default function ChatPage() {
     event.preventDefault();
     setStatus('');
 
-    if (!trimmedDraft) {
+    if (!trimmedDraft && !selectedImage) {
       return;
     }
 
