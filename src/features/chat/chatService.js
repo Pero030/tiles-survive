@@ -23,17 +23,16 @@ import { authService } from '../auth/authService.js';
 const chatRoomsRef = collection(db, 'chatRooms');
 
 const normalizeMessage = (message) => String(message || '').trim().slice(0, 800);
-const normalizeImageAttachment = (attachment) => {
-  if (!attachment || typeof attachment !== 'object') return null;
-
-  const url = String(attachment.url || '').trim();
+const normalizeImageAttachment = (attachment = null) => {
+  const item = attachment || {};
+  const url = String(item.url || '').trim();
   if (!url) return null;
 
   return {
     url,
-    name: String(attachment.name || 'Chat image').trim().slice(0, 120),
-    type: String(attachment.type || 'image').trim().slice(0, 40),
-    size: Number(attachment.size || 0),
+    name: String(item.name || 'Chat image').trim().slice(0, 120),
+    type: String(item.type || 'image').trim().slice(0, 40),
+    size: Number(item.size || 0),
   };
 };
 const normalizeServer = (gameServer) => String(gameServer || '').replace(/\D/g, '').slice(0, 6);
@@ -41,7 +40,31 @@ const normalizeAllianceTag = (allianceTag) => String(allianceTag || '').trim().r
 const normalizeRoomTitle = (title) => String(title || '').trim().slice(0, 60);
 const normalizeInviteCode = (code) => String(code || '').trim().replace(/[^a-z0-9]/gi, '').toUpperCase().slice(0, 12);
 const normalizeLanguageCode = (languageCode) => String(languageCode || '').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 12) || 'en';
+const getDirectPrivateKey = (firstUid, secondUid) => [firstUid, secondUid].filter(Boolean).sort().join('_');
 const isDeleteConfirmation = (value) => ['delete', 'loeschen', 'loschen', 'löschen'].includes(String(value || '').trim().toLowerCase());
+const getAllianceMuteUntil = (room, uid) => Number(room?.mutedUntilByUid?.[uid] || 0);
+const isAllianceMemberMuted = (room, user) => {
+  if (!room || !user || (room.type !== 'alliance' && room.type !== 'allianceSub')) return false;
+  if (canManageAllianceRoom(room, user)) return false;
+  const muteUntil = getAllianceMuteUntil(room, user.uid);
+  return muteUntil > Date.now() || room.mutedUids?.[user.uid] === true;
+};
+const formatMuteUntil = (timestamp) => {
+  const value = Number(timestamp || 0);
+  if (!value) return '';
+  return new Intl.DateTimeFormat('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+};
+const formatMuteDuration = (totalMinutes) => {
+  const minutes = Math.max(1, Math.round(Number(totalMinutes) || 0));
+  const hours = Math.floor(minutes / 60);
+  const restMinutes = minutes % 60;
+  if (hours > 0 && restMinutes > 0) return `${hours} hour${hours === 1 ? '' : 's'} ${restMinutes} minute${restMinutes === 1 ? '' : 's'}`;
+  if (hours > 0) return `${hours} hour${hours === 1 ? '' : 's'}`;
+  return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+};
 
 const getRoomRef = (roomId) => doc(db, 'chatRooms', roomId);
 const getRoomMessagesRef = (roomId) => collection(db, 'chatRooms', roomId, 'messages');
@@ -182,6 +205,7 @@ const canUseRoom = (room, user, profile = {}) => {
 
 const canWriteRoom = (room, user, profile = {}) => {
   if (!canUseRoom(room, user, profile)) return false;
+  if (isAllianceMemberMuted(room, user)) return false;
   if (room.type !== 'allianceSub') return true;
   if (room.memberCanWrite === false) {
     return canManageAllianceRoom(room, user);
@@ -192,18 +216,46 @@ const canWriteRoom = (room, user, profile = {}) => {
 const canInviteToRoom = (room, user) => {
   if (!room || room.type !== 'private' || !user) return false;
   if (room.ownerUid === user.uid) return true;
-  return room.invitePolicy === 'allMembers' && room.memberUids?.[user.uid] === true;
+  return room.memberPermissions?.[user.uid]?.canInvite === true && room.memberUids?.[user.uid] === true;
+};
+
+const canKickFromRoom = (room, user) => {
+  if (!room || room.type !== 'private' || !user) return false;
+  if (room.ownerUid === user.uid) return true;
+  return room.memberPermissions?.[user.uid]?.canKick === true && room.memberUids?.[user.uid] === true;
+};
+
+const normalizeAllianceRolePermission = (permission) => permission === 'owner' ? 'owner' : permission === 'admin' ? 'admin' : 'member';
+const normalizeAllianceRoleName = (name) => String(name || '').trim().slice(0, 32);
+const normalizeAllianceRoleId = (name) => normalizeAllianceRoleName(name)
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-')
+  .replace(/^-+|-+$/g, '')
+  .slice(0, 40);
+const getAllianceRoleDefinition = (room, roleId) => {
+  if (roleId === 'owner') return { id: 'owner', name: 'Owner', permission: 'owner', system: true };
+  if (roleId === 'admin') return { id: 'admin', name: 'Admin', permission: 'admin', system: true };
+  if (roleId === 'member') return { id: 'member', name: 'Member', permission: 'member', system: true };
+  const customRole = room?.allianceRoles?.[roleId];
+  return customRole ? { id: roleId, ...customRole, permission: normalizeAllianceRolePermission(customRole.permission) } : { id: 'member', name: 'Member', permission: 'member', system: true };
+};
+const getAllianceMemberPermission = (room, userOrUid) => {
+  const uid = typeof userOrUid === 'string' ? userOrUid : userOrUid?.uid;
+  if (!room || !uid) return 'member';
+  if (room.ownerUid === uid) return 'owner';
+  const roleId = room.memberRoles?.[uid] || 'member';
+  return getAllianceRoleDefinition(room, roleId).permission;
 };
 
 const canManageAllianceRoom = (room, user) => {
   if (!room || (room.type !== 'alliance' && room.type !== 'allianceSub') || !user) return false;
-  const role = room.memberRoles?.[user.uid];
-  return room.ownerUid === user.uid || role === 'owner' || role === 'admin';
+  const permission = getAllianceMemberPermission(room, user);
+  return permission === 'owner' || permission === 'admin';
 };
 
-const canChangeAllianceRoles = (room, user) => room?.type === 'alliance' && Boolean(user?.uid) && (room.ownerUid === user.uid || room.memberRoles?.[user.uid] === 'owner');
-const canCreateAllianceSubRoom = (room, user) => room?.type === 'alliance' && Boolean(user?.uid) && (room.ownerUid === user.uid || room.memberRoles?.[user.uid] === 'owner');
-const canDeleteAllianceRoom = (room, user) => Boolean(room?.id && user?.uid && (room.ownerUid === user.uid || room.memberRoles?.[user.uid] === 'owner'));
+const canChangeAllianceRoles = (room, user) => room?.type === 'alliance' && Boolean(user?.uid) && getAllianceMemberPermission(room, user) === 'owner';
+const canCreateAllianceSubRoom = (room, user) => room?.type === 'alliance' && Boolean(user?.uid) && getAllianceMemberPermission(room, user) === 'owner';
+const canDeleteAllianceRoom = (room, user) => Boolean(room?.id && user?.uid && getAllianceMemberPermission(room, user) === 'owner');
 
 const canDeleteRoom = (room, user) => room?.type === 'private' && Boolean(user?.uid) && room.ownerUid === user.uid;
 
@@ -266,6 +318,7 @@ export const chatService = {
   },
 
   canInviteToRoom,
+  canKickFromRoom,
   canDeleteRoom,
   canUseRoom,
   canWriteRoom,
@@ -357,7 +410,7 @@ export const chatService = {
     );
   },
 
-  async createPrivateRoom({ title, invitePolicy = 'ownerOnly', memberUids = [] }) {
+  async createPrivateRoom({ title, invitePolicy = 'ownerOnly', memberUids = [], directKey = '', isDirectPrivate = false, directMemberNames = {} }) {
     if (!auth.currentUser) {
       throw new Error('Sign in before creating a private chat.');
     }
@@ -365,21 +418,68 @@ export const chatService = {
     const profile = await getCurrentProfile();
     const uniqueMemberUids = [...new Set([auth.currentUser.uid, ...memberUids.filter(Boolean)])];
     const memberMap = Object.fromEntries(uniqueMemberUids.map((uid) => [uid, true]));
-    const roomTitle = normalizeRoomTitle(title) || 'Private Chat';
+    const memberPermissions = Object.fromEntries(uniqueMemberUids.map((uid) => [uid, {
+      canInvite: uid === auth.currentUser.uid,
+      canKick: uid === auth.currentUser.uid,
+    }]));
+    const roomTitle = normalizeRoomTitle(title);
+    if (!roomTitle && isDirectPrivate !== true) {
+      throw new Error('Enter a room name first.');
+    }
 
     const roomDoc = await addDoc(chatRoomsRef, {
       type: 'private',
-      title: roomTitle,
+      title: roomTitle || 'Private Chat',
       ownerUid: auth.currentUser.uid,
       invitePolicy: invitePolicy === 'allMembers' ? 'allMembers' : 'ownerOnly',
       memberUids: memberMap,
+      memberPermissions,
       memberCount: uniqueMemberUids.length,
+      directKey: String(directKey || '').trim(),
+      isDirectPrivate: isDirectPrivate === true,
+      directMemberNames: isDirectPrivate === true ? directMemberNames : {},
       createdByLabel: buildSenderLabel(auth.currentUser, profile),
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
 
     return roomDoc.id;
+  },
+
+
+  async createOrOpenDirectPrivateRoom({ targetUid, targetName = '' }) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before creating a private chat.');
+    }
+
+    const cleanedTargetUid = String(targetUid || '').trim();
+    if (!cleanedTargetUid || cleanedTargetUid === auth.currentUser.uid) {
+      throw new Error('Choose another user first.');
+    }
+
+    const directKey = getDirectPrivateKey(auth.currentUser.uid, cleanedTargetUid);
+    const directSnapshot = await getDocs(query(chatRoomsRef, where('directKey', '==', directKey), limit(1)));
+    const directRoom = directSnapshot.docs[0];
+    if (directRoom) {
+      return directRoom.id;
+    }
+
+
+    const currentProfile = await getCurrentProfile();
+    const currentDisplayName = String(currentProfile?.displayName || auth.currentUser.displayName || 'Player').trim() || 'Player';
+    const title = normalizeRoomTitle(targetName) || 'Private Chat';
+    const roomId = await this.createPrivateRoom({
+      title,
+      invitePolicy: 'ownerOnly',
+      memberUids: [cleanedTargetUid],
+      directKey,
+      isDirectPrivate: true,
+      directMemberNames: {
+        [auth.currentUser.uid]: currentDisplayName,
+        [cleanedTargetUid]: title,
+      },
+    });
+    return roomId;
   },
 
   async addMembersToPrivateRoom(roomId, memberUids = []) {
@@ -409,6 +509,85 @@ export const chatService = {
     });
   },
 
+  async updatePrivateRoomSettings(roomId, { title, invitePolicy }) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before changing private chat settings.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      throw new Error('Private chat not found.');
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (!canDeleteRoom(room, auth.currentUser)) {
+      throw new Error('Only the creator can change private chat settings.');
+    }
+
+    await updateDoc(getRoomRef(roomId), {
+      title: normalizeRoomTitle(title) || room.title || 'Private Chat',
+      invitePolicy: invitePolicy === 'allMembers' ? 'allMembers' : 'ownerOnly',
+      updatedAt: serverTimestamp(),
+    });
+  },
+  async updatePrivateMemberPermissions(roomId, uid, permissions = {}) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before changing private chat permissions.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      throw new Error('Private chat not found.');
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (!canDeleteRoom(room, auth.currentUser)) {
+      throw new Error('Only the creator can change member permissions.');
+    }
+    if (!room.memberUids?.[uid]) {
+      throw new Error('This user is not a member of this private chat.');
+    }
+    if (uid === room.ownerUid) {
+      throw new Error('The creator keeps all private chat rights.');
+    }
+
+    await updateDoc(getRoomRef(roomId), {
+      ['memberPermissions.' + uid]: {
+        canInvite: permissions.canInvite === true,
+        canKick: permissions.canKick === true,
+      },
+      updatedAt: serverTimestamp(),
+    });
+  },
+
+  async removeMemberFromPrivateRoom(roomId, uid) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before removing users.');
+    }
+
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      throw new Error('Private chat not found.');
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (!canKickFromRoom(room, auth.currentUser)) {
+      throw new Error('You are not allowed to remove users from this chat.');
+    }
+    if (uid === room.ownerUid) {
+      throw new Error('The creator cannot be removed from this private chat.');
+    }
+    if (!room.memberUids?.[uid]) {
+      return;
+    }
+
+    await updateDoc(getRoomRef(roomId), {
+      ['memberUids.' + uid]: deleteField(),
+      ['memberPermissions.' + uid]: deleteField(),
+      memberCount: Math.max(1, Object.keys(room.memberUids || {}).length - 1),
+      updatedAt: serverTimestamp(),
+    });
+  },
   async deletePrivateRoom(roomId) {
     if (!auth.currentUser) {
       throw new Error('Sign in before deleting a private chat.');
@@ -517,7 +696,7 @@ export const chatService = {
     return createAllianceRoom(profile);
   },
 
-  async createAllianceSubRoom(parentRoom) {
+  async createAllianceSubRoom(parentRoom, title = '') {
     if (!auth.currentUser) {
       throw new Error('Sign in before creating an alliance sub chat.');
     }
@@ -546,16 +725,22 @@ export const chatService = {
     }
 
     const nextNumber = existingSubRooms.length + 1;
+    const roomTitle = normalizeRoomTitle(title);
+    if (!roomTitle) {
+      throw new Error('Enter a sub chat name first.');
+    }
+
     const roomDoc = await addDoc(chatRoomsRef, {
       type: 'allianceSub',
       parentRoomId: liveParentRoom.id,
-      title: `${liveParentRoom.title} - Chat ${nextNumber}`,
+      title: roomTitle,
       gameServer: liveParentRoom.gameServer,
       allianceName: liveParentRoom.allianceName || '',
       allianceTag: liveParentRoom.allianceTag,
       ownerUid: liveParentRoom.ownerUid,
       memberUids: liveParentRoom.memberUids || {},
       memberRoles: liveParentRoom.memberRoles || {},
+      allianceRoles: liveParentRoom.allianceRoles || {},
       memberCount: liveParentRoom.memberCount || Object.keys(liveParentRoom.memberUids || {}).length || 1,
       audience: 'members',
       memberCanWrite: true,
@@ -677,6 +862,89 @@ export const chatService = {
     await Promise.all(addedProfiles.map((addedProfile) => addAllianceJoinMessage(roomId, addedProfile)));
   },
 
+  async setAllianceCustomRole(roomId, roleId, roleData = {}) {
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      throw new Error('Alliance chat not found.');
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (!canChangeAllianceRoles(room, auth.currentUser)) {
+      throw new Error('Only alliance owners can manage roles.');
+    }
+
+    const roleName = normalizeAllianceRoleName(roleData.name);
+    const nextRoleId = normalizeAllianceRoleId(roleId || roleName);
+    if (!roleName || !nextRoleId || ['owner', 'admin', 'member'].includes(nextRoleId)) {
+      throw new Error('Enter a valid custom role name.');
+    }
+
+    const nextRole = {
+      name: roleName,
+      permission: normalizeAllianceRolePermission(roleData.permission),
+      updatedAt: Date.now(),
+    };
+    const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', roomId)));
+    const batch = writeBatch(db);
+    batch.update(getRoomRef(roomId), {
+      [`allianceRoles.${nextRoleId}`]: nextRole,
+      updatedAt: serverTimestamp(),
+    });
+
+    subRoomsSnapshot.docs.forEach((roomDoc) => {
+      const subRoom = roomDoc.data() || {};
+      if (subRoom.type !== 'allianceSub') return;
+      batch.update(roomDoc.ref, {
+        [`allianceRoles.${nextRoleId}`]: nextRole,
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+    return nextRoleId;
+  },
+
+  async deleteAllianceCustomRole(roomId, roleId) {
+    const roomSnapshot = await getDoc(getRoomRef(roomId));
+    if (!roomSnapshot.exists()) {
+      throw new Error('Alliance chat not found.');
+    }
+
+    const room = { id: roomSnapshot.id, ...roomSnapshot.data() };
+    if (!canChangeAllianceRoles(room, auth.currentUser)) {
+      throw new Error('Only alliance owners can manage roles.');
+    }
+
+    const normalizedRoleId = normalizeAllianceRoleId(roleId);
+    if (!normalizedRoleId || ['owner', 'admin', 'member'].includes(normalizedRoleId)) return;
+
+    const affectedUids = Object.entries(room.memberRoles || {})
+      .filter(([, memberRole]) => memberRole === normalizedRoleId)
+      .map(([uid]) => uid);
+    const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', roomId)));
+    const batch = writeBatch(db);
+    batch.update(getRoomRef(roomId), {
+      [`allianceRoles.${normalizedRoleId}`]: deleteField(),
+      ...Object.fromEntries(affectedUids.map((uid) => [`memberRoles.${uid}`, 'member'])),
+      updatedAt: serverTimestamp(),
+    });
+
+    subRoomsSnapshot.docs.forEach((roomDoc) => {
+      const subRoom = roomDoc.data() || {};
+      if (subRoom.type !== 'allianceSub') return;
+      const subAffectedUids = Object.entries(subRoom.memberRoles || {})
+        .filter(([, memberRole]) => memberRole === normalizedRoleId)
+        .map(([uid]) => uid);
+      batch.update(roomDoc.ref, {
+        [`allianceRoles.${normalizedRoleId}`]: deleteField(),
+        ...Object.fromEntries(subAffectedUids.map((uid) => [`memberRoles.${uid}`, 'member'])),
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+  },
+
   async setAllianceMemberRole(roomId, uid, role) {
     if (!auth.currentUser) {
       throw new Error('Sign in before managing alliance chat.');
@@ -692,11 +960,12 @@ export const chatService = {
       throw new Error('Only the alliance chat owner can change roles.');
     }
 
-    if (!uid || uid === room.ownerUid || !room.memberUids?.[uid]) {
+    if (!uid || !room.memberUids?.[uid]) {
       return;
     }
 
-    const nextRole = role === 'owner' ? 'owner' : role === 'admin' ? 'admin' : 'member';
+    const roleId = String(role || 'member').trim();
+    const nextRole = ['owner', 'admin', 'member'].includes(roleId) || room.allianceRoles?.[roleId] ? roleId : 'member';
     const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', roomId)));
     const batch = writeBatch(db);
     batch.update(getRoomRef(roomId), {
@@ -809,7 +1078,7 @@ export const chatService = {
     }
 
     await updateDoc(getRoomRef(roomId), {
-      title: roomTitle,
+      title: roomTitle || 'Private Chat',
       updatedAt: serverTimestamp(),
     });
   },
@@ -888,9 +1157,58 @@ export const chatService = {
     return roomDoc.id;
   },
 
+  async setAllianceMemberMuted(roomId, uid, options = {}) {
+    const room = await assertAllianceManager(roomId);
+    if (!uid || !room.memberUids?.[uid]) {
+      return;
+    }
+
+    const muted = typeof options === 'boolean' ? options : options.muted === true;
+    const durationMinutes = Math.max(1, Math.round(Number(options.durationMinutes || 0)));
+    const mutedUntil = muted ? Date.now() + (durationMinutes * 60 * 1000) : 0;
+    const targetName = String(options.displayName || 'Member').trim().slice(0, 80) || 'Member';
+    const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', room.id)));
+    const batch = writeBatch(db);
+    const muteValue = muted ? mutedUntil : deleteField();
+
+    batch.update(getRoomRef(room.id), {
+      [`mutedUntilByUid.${uid}`]: muteValue,
+      [`mutedUids.${uid}`]: deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+
+    subRoomsSnapshot.docs.forEach((roomDoc) => {
+      const subRoom = roomDoc.data() || {};
+      if (subRoom.type !== 'allianceSub' || !subRoom.memberUids?.[uid]) return;
+      batch.update(roomDoc.ref, {
+        [`mutedUntilByUid.${uid}`]: muteValue,
+        [`mutedUids.${uid}`]: deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+
+    if (muted) {
+      const durationLabel = formatMuteDuration(durationMinutes);
+      await addDoc(getRoomMessagesRef(room.id), {
+        type: 'system',
+        eventType: 'allianceMemberMuted',
+        text: `${targetName} cannot write for ${durationLabel}.`,
+        uid: '__system__',
+        displayName: targetName,
+        createdAt: serverTimestamp(),
+      });
+      await setDoc(getRoomRef(room.id), {
+        lastMessageAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+    }
+  },
+
   async removeAllianceMember(roomId, uid) {
     const room = await assertAllianceManager(roomId);
-    if (!uid || uid === room.ownerUid || !room.memberUids?.[uid]) {
+    if (!uid || !room.memberUids?.[uid]) {
       return;
     }
 
@@ -899,6 +1217,8 @@ export const chatService = {
     batch.update(getRoomRef(roomId), {
       [`memberUids.${uid}`]: deleteField(),
       [`memberRoles.${uid}`]: deleteField(),
+      [`mutedUntilByUid.${uid}`]: deleteField(),
+      [`mutedUids.${uid}`]: deleteField(),
       memberCount: Math.max(1, Object.keys(room.memberUids || {}).length - 1),
       updatedAt: serverTimestamp(),
     });
@@ -909,6 +1229,8 @@ export const chatService = {
       batch.update(roomDoc.ref, {
         [`memberUids.${uid}`]: deleteField(),
         [`memberRoles.${uid}`]: deleteField(),
+        [`mutedUntilByUid.${uid}`]: deleteField(),
+        [`mutedUids.${uid}`]: deleteField(),
         memberCount: Math.max(1, Object.keys(subRoom.memberUids || {}).length - (subRoom.memberUids?.[uid] ? 1 : 0)),
         updatedAt: serverTimestamp(),
       });
@@ -946,6 +1268,11 @@ export const chatService = {
         throw new Error('You need alliance chat approval before writing here.');
       }
       if (!canWriteRoom(allianceRoom, auth.currentUser, profile)) {
+        if (isAllianceMemberMuted(allianceRoom, auth.currentUser)) {
+          const muteUntil = getAllianceMuteUntil(allianceRoom, auth.currentUser.uid);
+          const muteUntilLabel = formatMuteUntil(muteUntil);
+          throw new Error(muteUntilLabel ? 'Du wurdest bis ' + muteUntilLabel + ' Uhr für das Schreiben im Chat gesperrt.' : 'Du wurdest für das Schreiben im Chat gesperrt.');
+        }
         throw new Error('Only alliance chat owner/admins can write in this sub chat.');
       }
     } else {
@@ -994,6 +1321,7 @@ export const chatService = {
     return result.data?.translatedText || null;
   },
 };
+
 
 
 

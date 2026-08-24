@@ -213,6 +213,36 @@ export function GoogleTranslate() {
       observer.observe(wrapperRef.current, { childList: true, subtree: true });
     }
 
+    const pageObserver = new MutationObserver((mutations) => {
+      const storedLanguage = readStoredLanguage() || selectedLanguage;
+      if (!storedLanguage || storedLanguage === 'en') {
+        return;
+      }
+
+      const shouldRepair = mutations.some((mutation) => {
+        const target = mutation.target;
+        if (target?.closest?.('.global-translate, .skiptranslate, .goog-te-menu-frame, .goog-te-banner-frame')) {
+          return false;
+        }
+
+        return mutation.type === 'characterData' || Array.from(mutation.addedNodes || []).some((node) => {
+          if (node.nodeType === Node.TEXT_NODE) {
+            return String(node.textContent || '').trim().length > 0;
+          }
+
+          return node.nodeType === Node.ELEMENT_NODE && !node.closest?.('.global-translate, .skiptranslate');
+        });
+      });
+
+      if (!shouldRepair) {
+        return;
+      }
+
+      window.clearTimeout(domRepairTimeoutRef.current);
+      domRepairTimeoutRef.current = window.setTimeout(() => scheduleTranslationRepair(120), 450);
+    });
+    pageObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+
     let lastLocation = window.location.href;
     const locationIntervalId = window.setInterval(() => {
       if (lastLocation !== window.location.href) {

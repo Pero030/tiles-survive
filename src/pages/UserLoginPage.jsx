@@ -1,12 +1,52 @@
-import { Apple, BadgeCheck, ImagePlus, KeyRound, Mail, ShieldCheck, UserRound } from 'lucide-react';
+import { Apple, BadgeCheck, Ban, Check, ImagePlus, KeyRound, Mail, ShieldCheck, UserPlus, UserRound, Users, XCircle } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { authService } from '../features/auth/authService.js';
 import { normalizeAdminEmail, subscribeToAdminAccess } from '../services/adminAccess.js';
+import { friendService } from '../services/friendService.js';
+import { subscribeToPublicProfiles } from '../services/profileDirectory.js';
 
 const providerErrorHelp = 'Check that this sign-in provider is enabled in Firebase Authentication.';
 const getPersistedPhotoURL = (photoURL) => {
   const value = String(photoURL || '').trim();
   return /^https:\/\//i.test(value) ? value : '';
+};
+
+const getFriendRequestUser = (request, side) => {
+  if (side === 'incoming') {
+    return request.fromProfile || { uid: request.fromUid, displayName: request.fromLabel || 'Player' };
+  }
+
+  if (side === 'outgoing') {
+    return request.toProfile || { uid: request.toUid, displayName: request.toLabel || 'Player' };
+  }
+
+  return {};
+};
+
+const getFriendshipUser = (friendship, uid) => {
+  const otherUid = (friendship.participants || []).find((participantUid) => participantUid !== uid);
+  return friendship.memberProfiles?.[otherUid] || { uid: otherUid, displayName: friendship.memberLabels?.[otherUid] || 'Player' };
+};
+
+const getCompactUserLabel = (profile = {}) => {
+  const server = profile.gameServer ? `#${profile.gameServer}` : '';
+  const alliance = profile.allianceTag ? `[${profile.allianceTag}]` : '';
+  return [server, alliance].filter(Boolean).join(' ');
+};
+
+const getStoredIgnoredUsers = (uid) => {
+  if (typeof window === 'undefined' || !uid) return {};
+
+  try {
+    return JSON.parse(window.localStorage.getItem(`tiles-survive-chat-ignored-${uid}`) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const storeIgnoredUsers = (uid, ignoredUsers) => {
+  if (typeof window === 'undefined' || !uid) return;
+  window.localStorage.setItem(`tiles-survive-chat-ignored-${uid}`, JSON.stringify(ignoredUsers));
 };
 
 const GoogleMark = () => (
@@ -53,6 +93,10 @@ export default function UserLoginPage() {
   const [newEmail, setNewEmail] = useState('');
   const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState('');
   const [profileSection, setProfileSection] = useState('profile');
+  const [friendView, setFriendView] = useState('requests');
+  const [friendRequests, setFriendRequests] = useState({ incoming: [], outgoing: [], friends: [] });
+  const [publicProfiles, setPublicProfiles] = useState([]);
+  const [ignoredUsers, setIgnoredUsers] = useState(() => getStoredIgnoredUsers(authService.getCurrentUser()?.uid));
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState('error');
   const [busy, setBusy] = useState('');
@@ -80,6 +124,7 @@ export default function UserLoginPage() {
       setCurrentPasswordForPassword('');
       setNewPassword('');
       setConfirmNewPassword('');
+      setIgnoredUsers({});
       setProfileLoaded(false);
     }
     if (nextUser) setStatus('');
@@ -130,6 +175,41 @@ export default function UserLoginPage() {
   }, [user?.email]);
 
   useEffect(() => {
+    setIgnoredUsers(getStoredIgnoredUsers(user?.uid));
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setPublicProfiles([]);
+      return undefined;
+    }
+
+    return subscribeToPublicProfiles(
+      setPublicProfiles,
+      (error) => {
+        setStatusTone('error');
+        setStatus(error?.message || 'Public profiles could not be loaded.');
+      },
+    );
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setFriendRequests({ incoming: [], outgoing: [], friends: [] });
+      return undefined;
+    }
+
+    return friendService.subscribeFriendRequests(
+      user.uid,
+      setFriendRequests,
+      (error) => {
+        setStatusTone('error');
+        setStatus(error?.message || 'Friend requests could not be loaded.');
+      },
+    );
+  }, [user?.uid]);
+
+  useEffect(() => {
     authService.completeRedirectLogin().catch((error) => {
       setStatusTone('error');
       setStatus(getFriendlyError(error));
@@ -139,6 +219,15 @@ export default function UserLoginPage() {
   const userLabel = useMemo(() => user?.displayName || user?.email || 'Signed in user', [user]);
   const providerId = user?.providerData?.[0]?.providerId || 'password';
   const canChangePassword = providerId === 'password';
+  const pendingIncomingRequests = useMemo(() => friendRequests.incoming.filter((request) => request.status === 'pending'), [friendRequests.incoming]);
+  const pendingOutgoingRequests = useMemo(() => friendRequests.outgoing.filter((request) => request.status === 'pending'), [friendRequests.outgoing]);
+  const ignoredProfiles = useMemo(() => Object.keys(ignoredUsers)
+    .filter((uid) => ignoredUsers[uid] === true)
+    .map((uid) => {
+      const profile = publicProfiles.find((item) => item.uid === uid);
+      return profile || { uid, displayName: 'Unknown user', gameServer: '', allianceTag: '', photoURL: '' };
+    })
+    .sort((first, second) => String(first.displayName || '').localeCompare(String(second.displayName || ''))), [ignoredUsers, publicProfiles]);
 
   const runAction = async (actionName, action, successMessage = '') => {
     setBusy(actionName);
@@ -258,6 +347,30 @@ export default function UserLoginPage() {
     await runAction('logout', async () => authService.signOut());
   };
 
+  const handleAcceptFriendRequest = async (request) => {
+    await runAction(`friend-accept-${request.id}`, async () => friendService.acceptFriendRequest(request), 'Friend request accepted.');
+  };
+
+  const handleDeclineFriendRequest = async (request) => {
+    await runAction(`friend-decline-${request.id}`, async () => friendService.declineFriendRequest(request), 'Friend request declined.');
+  };
+
+  const handleCancelFriendRequest = async (request) => {
+    await runAction(`friend-cancel-${request.id}`, async () => friendService.cancelFriendRequest(request), 'Friend request canceled.');
+  };
+
+
+  const handleStopIgnoringUser = (uid) => {
+    setIgnoredUsers((current) => {
+      const next = { ...current };
+      delete next[uid];
+      storeIgnoredUsers(user?.uid, next);
+      return next;
+    });
+    setStatusTone('success');
+    setStatus('User removed from ignore list.');
+  };
+
   if (user) {
     const isVerified = !user.email || user.emailVerified;
 
@@ -300,6 +413,11 @@ export default function UserLoginPage() {
             <button className={profileSection === 'profile' ? 'is-active' : ''} type="button" onClick={() => setProfileSection('profile')}>
               <UserRound size={19} />
               Profile Data
+            </button>
+            <button className={profileSection === 'friends' ? 'is-active' : ''} type="button" onClick={() => setProfileSection('friends')}>
+              <Users size={19} />
+              Friends
+              {pendingIncomingRequests.length ? <span className="profile-menu-count">{pendingIncomingRequests.length}</span> : null}
             </button>
             <button className={profileSection === 'security' ? 'is-active' : ''} type="button" onClick={() => setProfileSection('security')}>
               <KeyRound size={19} />
@@ -346,6 +464,117 @@ export default function UserLoginPage() {
                 {!profileLoaded ? 'Loading profile...' : busy === 'profile' ? 'Saving...' : 'Save profile'}
               </button>
             </form>
+          ) : profileSection === 'friends' ? (
+            <section className="profile-panel profile-settings-card profile-section-card profile-friends-card">
+              <div className="profile-panel-heading">
+                <span><Users size={21} /></span>
+                <div>
+                  <h2>Friends</h2>
+                  <p>Manage friend requests, friends, and ignored people.</p>
+                </div>
+              </div>
+
+              <div className="profile-friend-tabs" role="tablist" aria-label="Friends options">
+                <button className={friendView === 'requests' ? 'is-active' : ''} type="button" onClick={() => setFriendView('requests')}>
+                  <Users size={16} /> Friends
+                </button>
+                <button className={friendView === 'ignored' ? 'is-active' : ''} type="button" onClick={() => setFriendView('ignored')}>
+                  <Ban size={16} /> Ignore list
+                  {ignoredProfiles.length ? <span>{ignoredProfiles.length}</span> : null}
+                </button>
+              </div>
+
+              {friendView === 'requests' ? (
+                <>
+                  <div className="profile-friend-section">
+                    <h3><UserPlus size={18} /> Incoming requests</h3>
+                    <div className="profile-friend-list">
+                      {pendingIncomingRequests.length ? pendingIncomingRequests.map((request) => {
+                        const profile = getFriendRequestUser(request, 'incoming');
+                        return (
+                          <article className="profile-friend-card" key={request.id} translate="no">
+                            <span className={profile.photoURL ? 'profile-friend-avatar has-photo' : 'profile-friend-avatar'} translate="no">
+                              {profile.photoURL ? <img src={profile.photoURL} alt="" /> : String(profile.displayName || 'P').slice(0, 1).toUpperCase()}
+                            </span>
+                            <div>
+                              <strong>{profile.displayName || request.fromLabel || 'Player'}</strong>
+                              <small>{getCompactUserLabel(profile) || request.fromLabel || 'Website user'}</small>
+                            </div>
+                            <div className="profile-friend-actions">
+                              <button type="button" onClick={() => handleAcceptFriendRequest(request)} disabled={Boolean(busy)}><Check size={15} /> Accept</button>
+                              <button type="button" onClick={() => handleDeclineFriendRequest(request)} disabled={Boolean(busy)}><XCircle size={15} /> Decline</button>
+                            </div>
+                          </article>
+                        );
+                      }) : <p>No incoming friend requests.</p>}
+                    </div>
+                  </div>
+
+                  <div className="profile-friend-section">
+                    <h3><UserPlus size={18} /> Sent requests</h3>
+                    <div className="profile-friend-list">
+                      {pendingOutgoingRequests.length ? pendingOutgoingRequests.map((request) => {
+                        const profile = getFriendRequestUser(request, 'outgoing');
+                        return (
+                          <article className="profile-friend-card" key={request.id} translate="no">
+                            <span className={profile.photoURL ? 'profile-friend-avatar has-photo' : 'profile-friend-avatar'} translate="no">
+                              {profile.photoURL ? <img src={profile.photoURL} alt="" /> : String(profile.displayName || 'P').slice(0, 1).toUpperCase()}
+                            </span>
+                            <div>
+                              <strong>{profile.displayName || request.toLabel || 'Player'}</strong>
+                              <small>Pending</small>
+                            </div>
+                            <div className="profile-friend-actions">
+                              <button type="button" onClick={() => handleCancelFriendRequest(request)} disabled={Boolean(busy)}><XCircle size={15} /> Cancel</button>
+                            </div>
+                          </article>
+                        );
+                      }) : <p>No sent friend requests.</p>}
+                    </div>
+                  </div>
+
+                  <div className="profile-friend-section">
+                    <h3><Users size={18} /> Friends</h3>
+                    <div className="profile-friend-list">
+                      {friendRequests.friends.length ? friendRequests.friends.map((friendship) => {
+                        const profile = getFriendshipUser(friendship, user.uid);
+                        return (
+                          <article className="profile-friend-card" key={friendship.id} translate="no">
+                            <span className={profile.photoURL ? 'profile-friend-avatar has-photo' : 'profile-friend-avatar'} translate="no">
+                              {profile.photoURL ? <img src={profile.photoURL} alt="" /> : String(profile.displayName || 'P').slice(0, 1).toUpperCase()}
+                            </span>
+                            <div>
+                              <strong>{profile.displayName || 'Player'}</strong>
+                              <small>{getCompactUserLabel(profile) || 'Friend'}</small>
+                            </div>
+                          </article>
+                        );
+                      }) : <p>No friends yet.</p>}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="profile-friend-section">
+                  <h3><Ban size={18} /> Ignore list</h3>
+                  <div className="profile-friend-list">
+                    {ignoredProfiles.length ? ignoredProfiles.map((profile) => (
+                      <article className="profile-friend-card" key={profile.uid}>
+                        <span className={profile.photoURL ? 'profile-friend-avatar has-photo' : 'profile-friend-avatar'} translate="no">
+                          {profile.photoURL ? <img src={profile.photoURL} alt="" /> : String(profile.displayName || 'P').slice(0, 1).toUpperCase()}
+                        </span>
+                        <div translate="no">
+                          <strong>{profile.displayName || 'Unknown user'}</strong>
+                          <small>{getCompactUserLabel(profile) || 'Ignored website user'}</small>
+                        </div>
+                        <div className="profile-friend-actions">
+                          <button type="button" onClick={() => handleStopIgnoringUser(profile.uid)} disabled={Boolean(busy)}><XCircle size={15} /> Stop ignoring</button>
+                        </div>
+                      </article>
+                    )) : <p>No ignored people.</p>}
+                  </div>
+                </div>
+              )}
+            </section>
           ) : (
             <section className="profile-security-grid">
               <form className="profile-panel profile-settings-card profile-section-card" onSubmit={handleEmailChange}>
