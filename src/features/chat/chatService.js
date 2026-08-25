@@ -696,6 +696,46 @@ export const chatService = {
     return createAllianceRoom(profile);
   },
 
+  async reorderAllianceSubRooms(parentRoomId, orderedRoomIds = []) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before reordering alliance sub chats.');
+    }
+
+    if (!parentRoomId || !Array.isArray(orderedRoomIds) || orderedRoomIds.length < 2) {
+      return;
+    }
+
+    const parentSnapshot = await getDoc(getRoomRef(parentRoomId));
+    if (!parentSnapshot.exists()) {
+      throw new Error('Main alliance chat not found.');
+    }
+
+    const parentRoom = { id: parentSnapshot.id, ...parentSnapshot.data() };
+    if (!canCreateAllianceSubRoom(parentRoom, auth.currentUser)) {
+      throw new Error('Only the alliance chat owner can reorder sub chats.');
+    }
+
+    const subRoomsSnapshot = await getDocs(query(chatRoomsRef, where('parentRoomId', '==', parentRoomId)));
+    const subRoomDocs = subRoomsSnapshot.docs
+      .map((roomDoc) => ({ id: roomDoc.id, ref: roomDoc.ref, data: roomDoc.data() || {} }))
+      .filter((room) => room.data.type === 'allianceSub');
+    const subRoomIds = new Set(subRoomDocs.map((room) => room.id));
+    const orderedIds = orderedRoomIds.filter((roomId) => subRoomIds.has(roomId));
+    const missingIds = subRoomDocs.map((room) => room.id).filter((roomId) => !orderedIds.includes(roomId));
+    const finalOrder = [...orderedIds, ...missingIds];
+
+    const batch = writeBatch(db);
+    finalOrder.forEach((roomId, index) => {
+      const subRoom = subRoomDocs.find((item) => item.id === roomId);
+      if (!subRoom) return;
+      batch.update(subRoom.ref, {
+        order: index + 1,
+        updatedAt: serverTimestamp(),
+      });
+    });
+
+    await batch.commit();
+  },
   async createAllianceSubRoom(parentRoom, title = '') {
     if (!auth.currentUser) {
       throw new Error('Sign in before creating an alliance sub chat.');
