@@ -37,6 +37,34 @@ function AuthorBadge({ item }) {
   );
 }
 
+function ForumThreadRow({ thread, category, isActive, onOpen }) {
+  return (
+    <button className={isActive ? 'forum-board-row is-active' : 'forum-board-row'} type="button" onClick={onOpen}>
+      <span className="forum-board-icon"><MessageSquare size={18} /></span>
+      <span className="forum-board-main">
+        <span className="forum-board-title-line">
+          {thread.pinned ? <Pin size={14} /> : null}
+          {thread.locked ? <LockKeyhole size={14} /> : null}
+          {thread.solved ? <CheckCircle2 size={14} /> : null}
+          <strong>{thread.title}</strong>
+        </span>
+        <span className="forum-board-subline">
+          <span>{category?.title || 'General'}</span>
+          <AuthorBadge item={thread} />
+          {thread.tags?.length ? <span className="forum-tags">{thread.tags.slice(0, 3).map((tag) => <i key={tag}>#{tag}</i>)}</span> : null}
+        </span>
+      </span>
+      <span className="forum-board-stat"><strong>{thread.replyCount || 0}</strong><small>Replies</small></span>
+      <span className="forum-board-stat"><strong>{thread.viewCount || 0}</strong><small>Views</small></span>
+      <span className="forum-board-last">
+        <small>Last post</small>
+        <strong translate="no">{thread.lastPostByName || thread.authorName || 'Player'}</strong>
+        <time>{formatForumDate(thread.lastPostAt || thread.createdAt)}</time>
+      </span>
+    </button>
+  );
+}
+
 export default function ForumPage() {
   const [user, setUser] = useState(() => authService.getCurrentUser());
   const [adminUsers, setAdminUsers] = useState([]);
@@ -93,6 +121,13 @@ export default function ForumPage() {
         return (second.lastPostAt?.toMillis?.() || 0) - (first.lastPostAt?.toMillis?.() || 0);
       });
   }, [search, selectedCategory, threads]);
+
+  const groupedThreads = useMemo(() => forumCategories
+    .map((category) => ({
+      ...category,
+      threads: filteredThreads.filter((thread) => thread.categoryId === category.id),
+    }))
+    .filter((category) => selectedCategory !== 'all' || category.threads.length || !search.trim()), [filteredThreads, search, selectedCategory]);
 
   const categoryCounts = useMemo(() => threads.reduce((counts, thread) => ({
     ...counts,
@@ -175,61 +210,82 @@ export default function ForumPage() {
     }
   };
 
+  const openBoard = () => {
+    setSelectedThreadId('');
+    setIsCreating(false);
+  };
+
   return (
     <section className="page-shell page-top forum-page">
       <div className="forum-shell">
-        <header className="forum-header">
-          <div>
-            <p className="eyebrow">Community Forum</p>
-            <h1>Forum</h1>
-            <p>Ask questions, share strategies, collect guides, and keep long discussions outside the live chat.</p>
-          </div>
+        <div className="forum-board-tools">
+          <label className="forum-search" htmlFor="forum-search">
+            <Search size={18} />
+            <input id="forum-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search topics, tags, players..." />
+          </label>
+          <button className={selectedCategory === 'all' ? 'is-active' : ''} type="button" onClick={() => { setSelectedCategory('all'); openBoard(); }}>All <span>{threads.length}</span></button>
+          {forumCategories.map((category) => (
+            <button className={selectedCategory === category.id ? 'is-active' : ''} key={category.id} type="button" onClick={() => { setSelectedCategory(category.id); openBoard(); }}>
+              {category.title} <span>{categoryCounts[category.id] || 0}</span>
+            </button>
+          ))}
           {user ? (
             <button className="forum-primary-action" type="button" onClick={() => { setIsCreating(true); setSelectedThreadId(''); }}>
               <Plus size={18} /> New topic
             </button>
           ) : (
-            <Link className="forum-primary-action" to="/login"><User size={18} /> Sign in to post</Link>
+            <Link className="forum-primary-action" to="/login"><User size={18} /> Sign in</Link>
           )}
-        </header>
-
-        <div className="forum-tools">
-          <label className="forum-search" htmlFor="forum-search">
-            <Search size={18} />
-            <input id="forum-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search topics, tags, players..." />
-          </label>
-          <button className={selectedCategory === 'all' ? 'is-active' : ''} type="button" onClick={() => setSelectedCategory('all')}>All <span>{threads.length}</span></button>
-          {forumCategories.map((category) => (
-            <button className={selectedCategory === category.id ? 'is-active' : ''} key={category.id} type="button" onClick={() => setSelectedCategory(category.id)}>
-              {category.title} <span>{categoryCounts[category.id] || 0}</span>
-            </button>
-          ))}
         </div>
 
         {status ? <strong className="forum-status">{status}</strong> : null}
 
-        <div className="forum-layout">
-          <aside className="forum-thread-list" aria-label="Forum topics">
-            {filteredThreads.length ? filteredThreads.map((thread) => {
-              const category = forumCategories.find((item) => item.id === thread.categoryId);
+        {!isCreating && !selectedThread ? (
+          <div className="forum-board-overview">
+            <div className="forum-board-column-head"><span>Forum</span><span>Replies</span><span>Views</span><span>Last post</span></div>
+            {groupedThreads.length ? groupedThreads.map((category) => {
+              const replyTotal = category.threads.reduce((total, thread) => total + (thread.replyCount || 0), 0);
+              const latest = category.threads[0] || null;
               return (
-                <button className={selectedThreadId === thread.id ? 'forum-thread-card is-active' : 'forum-thread-card'} key={thread.id} type="button" onClick={() => { setSelectedThreadId(thread.id); setIsCreating(false); }}>
-                  <span className="forum-thread-flags">
-                    {thread.pinned ? <Pin size={14} /> : null}
-                    {thread.locked ? <LockKeyhole size={14} /> : null}
-                    {thread.solved ? <CheckCircle2 size={14} /> : null}
-                    <small>{category?.title || 'General'}</small>
-                  </span>
-                  <strong>{thread.title}</strong>
-                  <AuthorBadge item={thread} />
-                  <span className="forum-thread-meta">{thread.replyCount || 0} replies · Last by {thread.lastPostByName || thread.authorName || 'Player'}</span>
-                  {thread.tags?.length ? <span className="forum-tags">{thread.tags.map((tag) => <i key={tag}>#{tag}</i>)}</span> : null}
-                </button>
+                <section className="forum-category-section" key={category.id}>
+                  <header className="forum-category-header">
+                    <div>
+                      <h2>{category.title}</h2>
+                      <p>{category.description}</p>
+                    </div>
+                    <div className="forum-category-stats">
+                      <span><strong>{category.threads.length}</strong> Topics</span>
+                      <span><strong>{replyTotal}</strong> Replies</span>
+                    </div>
+                  </header>
+                  <div className="forum-category-rows">
+                    {category.threads.length ? category.threads.slice(0, 8).map((thread) => (
+                      <ForumThreadRow
+                        category={category}
+                        isActive={selectedThreadId === thread.id}
+                        key={thread.id}
+                        onOpen={() => { setSelectedThreadId(thread.id); setIsCreating(false); }}
+                        thread={thread}
+                      />
+                    )) : (
+                      <div className="forum-board-empty">
+                        <MessageSquare size={18} />
+                        <span>No topics yet.</span>
+                        {user ? <button type="button" onClick={() => { setNewThread((current) => ({ ...current, categoryId: category.id })); setIsCreating(true); }}>Start one</button> : null}
+                      </div>
+                    )}
+                  </div>
+                  {latest ? (
+                    <footer className="forum-category-footer">
+                      Latest: <strong>{latest.title}</strong> by <span translate="no">{latest.lastPostByName || latest.authorName || 'Player'}</span>
+                    </footer>
+                  ) : null}
+                </section>
               );
             }) : <p className="forum-empty">No topics found.</p>}
-          </aside>
-
-          <main className="forum-topic-panel">
+          </div>
+        ) : (
+          <main className="forum-topic-panel forum-topic-full">
             {isCreating ? (
               <form className="forum-editor" onSubmit={handleCreateThread}>
                 <div className="forum-panel-heading">
@@ -237,7 +293,7 @@ export default function ForumPage() {
                     <p className="eyebrow">New Topic</p>
                     <h2>Create a forum topic</h2>
                   </div>
-                  <button className="forum-icon-action" type="button" onClick={() => setIsCreating(false)} aria-label="Close editor"><X size={18} /></button>
+                  <button className="forum-icon-action" type="button" onClick={openBoard} aria-label="Close editor"><X size={18} /></button>
                 </div>
                 <label>Category</label>
                 <select value={newThread.categoryId} onChange={(event) => setNewThread((current) => ({ ...current, categoryId: event.target.value }))}>
@@ -254,6 +310,7 @@ export default function ForumPage() {
             ) : selectedThread ? (
               <>
                 <header className="forum-panel-heading">
+                  <button className="forum-back-action" type="button" onClick={openBoard}>Back to forum</button>
                   <div>
                     <p className="eyebrow">{forumCategories.find((item) => item.id === selectedThread.categoryId)?.title || 'General'}</p>
                     <h2>{selectedThread.title}</h2>
@@ -291,16 +348,12 @@ export default function ForumPage() {
                   <Link className="forum-primary-action" to="/login"><User size={17} /> Sign in to reply</Link>
                 )}
               </>
-            ) : (
-              <div className="forum-welcome-panel">
-                <MessageSquare size={42} />
-                <h2>Select a topic</h2>
-                <p>Open an existing discussion or create a new topic to start a longer conversation.</p>
-              </div>
-            )}
+            ) : null}
           </main>
-        </div>
+        )}
       </div>
     </section>
   );
 }
+
+

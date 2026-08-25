@@ -10,6 +10,40 @@ const storageKey = 'tiles-survive-language';
 const notifyTranslationChange = () => {
   window.dispatchEvent(new CustomEvent('tiles-survive-translation-change'));
 };
+const setTranslationPending = (isPending) => {
+  if (typeof document === 'undefined') return;
+  document.documentElement.classList.toggle('translation-pending', Boolean(isPending));
+};
+
+const hasGoogleTranslatedPage = () => {
+  if (typeof document === 'undefined') return false;
+  const htmlClass = String(document.documentElement.className || '');
+  const bodyClass = String(document.body?.className || '');
+  return /translated-(ltr|rtl)/.test(`${htmlClass} ${bodyClass}`);
+};
+
+const clearTranslationPendingSoon = (delay = 2200, minimumDelay = 450) => {
+  if (typeof window === 'undefined') return;
+  const startedAt = Date.now();
+
+  const check = () => {
+    const elapsed = Date.now() - startedAt;
+    const storedLanguage = readStoredLanguage();
+    if (!storedLanguage || storedLanguage === 'en') {
+      setTranslationPending(false);
+      return;
+    }
+
+    if ((hasGoogleTranslatedPage() && elapsed >= minimumDelay) || elapsed > delay) {
+      setTranslationPending(false);
+      return;
+    }
+
+    window.setTimeout(check, 120);
+  };
+
+  window.setTimeout(check, 250);
+};
 
 const normalizeLanguageCode = (languageCode) => String(languageCode || '')
   .trim()
@@ -109,18 +143,28 @@ export function GoogleTranslate() {
   const wrapperRef = useRef(null);
   const appliedLanguageRef = useRef('');
   const repairTimeoutRef = useRef(null);
+  const contentRepairTimeoutRef = useRef(null);
+  const contentRepairCooldownRef = useRef(0);
 
   useEffect(() => {
+    const initialFallbackTimeoutId = selectedLanguage && selectedLanguage !== 'en'
+      ? window.setTimeout(() => setTranslationPending(false), 2400)
+      : null;
+
     storeSelectedLanguage(selectedLanguage);
 
     const applySelectedLanguage = (shouldDispatch = false, languageOverride = '') => {
       const select = wrapperRef.current?.querySelector('select.goog-te-combo');
       const languageToApply = languageOverride || readStoredLanguage() || selectedLanguage;
+      if (languageToApply && languageToApply !== 'en' && shouldDispatch) {
+        setTranslationPending(true);
+      }
       const didApply = applyLanguageToSelect(select, languageToApply, shouldDispatch);
 
       if (didApply) {
         appliedLanguageRef.current = languageToApply;
         setSelectedLanguage(languageToApply);
+        clearTranslationPendingSoon(languageToApply === 'en' ? 0 : 2200, 500);
       }
 
       return didApply;
@@ -131,12 +175,15 @@ export function GoogleTranslate() {
       repairTimeoutRef.current = window.setTimeout(() => {
         const storedLanguage = readStoredLanguage() || selectedLanguage;
         if (!storedLanguage || storedLanguage === 'en') {
+          setTranslationPending(false);
           return;
         }
 
+        setTranslationPending(true);
         storeSelectedLanguage(storedLanguage);
         applySelectedLanguage(true, storedLanguage);
         window.setTimeout(notifyTranslationChange, 600);
+        clearTranslationPendingSoon(2200, 500);
       }, delay);
     };
 
@@ -167,9 +214,11 @@ export function GoogleTranslate() {
 
       select.addEventListener('change', () => {
         const nextLanguage = select.value || 'en';
+        setTranslationPending(nextLanguage !== 'en');
         storeSelectedLanguage(nextLanguage);
         setSelectedLanguage(nextLanguage);
         setOpen(false);
+        clearTranslationPendingSoon(nextLanguage === 'en' ? 0 : 2200, 600);
         window.setTimeout(notifyTranslationChange, 250);
         window.setTimeout(notifyTranslationChange, 1200);
       });
@@ -213,41 +262,74 @@ export function GoogleTranslate() {
       observer.observe(wrapperRef.current, { childList: true, subtree: true });
     }
 
-    const pageObserver = new MutationObserver((mutations) => {
+    // Watch only the app content for new React/Firebase content after reload/navigation.
+
+    const scheduleContentTranslationRepair = () => {
       const storedLanguage = readStoredLanguage() || selectedLanguage;
       if (!storedLanguage || storedLanguage === 'en') {
+        setTranslationPending(false);
         return;
       }
 
-      const shouldRepair = mutations.some((mutation) => {
-        const target = mutation.target;
-        if (target?.closest?.('.global-translate, .skiptranslate, .goog-te-menu-frame, .goog-te-banner-frame')) {
+      const now = Date.now();
+      if (now - contentRepairCooldownRef.current < 1800) {
+        return;
+      }
+
+      window.clearTimeout(contentRepairTimeoutRef.current);
+      setTranslationPending(true);
+      contentRepairTimeoutRef.current = window.setTimeout(() => {
+        contentRepairCooldownRef.current = Date.now();
+        storeSelectedLanguage(storedLanguage);
+        applySelectedLanguage(true, storedLanguage);
+        window.setTimeout(notifyTranslationChange, 600);
+        clearTranslationPendingSoon(2400, 700);
+      }, 320);
+    };
+
+    const contentObserver = new MutationObserver((mutations) => {
+      const hasRealContentChange = mutations.some((mutation) => Array.from(mutation.addedNodes || []).some((node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          return String(node.textContent || '').trim().length > 0;
+        }
+
+        if (node.nodeType !== Node.ELEMENT_NODE) {
           return false;
         }
 
-        return mutation.type === 'characterData' || Array.from(mutation.addedNodes || []).some((node) => {
-          if (node.nodeType === Node.TEXT_NODE) {
-            return String(node.textContent || '').trim().length > 0;
-          }
+        if (node.closest?.('.global-translate, .skiptranslate, .goog-te-menu-frame, .goog-te-banner-frame')) {
+          return false;
+        }
 
-          return node.nodeType === Node.ELEMENT_NODE && !node.closest?.('.global-translate, .skiptranslate');
-        });
-      });
+        return String(node.textContent || '').trim().length > 0;
+      }));
 
-      if (!shouldRepair) {
+      if (hasRealContentChange) {
+        scheduleContentTranslationRepair();
+      }
+    });
+
+    const observeContentWhenReady = () => {
+      const mainContent = document.getElementById('main-content');
+      if (!mainContent || mainContent.dataset.translationObserved === 'true') {
         return;
       }
 
-      window.clearTimeout(domRepairTimeoutRef.current);
-      domRepairTimeoutRef.current = window.setTimeout(() => scheduleTranslationRepair(120), 450);
-    });
-    pageObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+      mainContent.dataset.translationObserved = 'true';
+      contentObserver.observe(mainContent, { childList: true, subtree: true });
+    };
+
+    observeContentWhenReady();
+    const observeContentIntervalId = window.setInterval(observeContentWhenReady, 500);
 
     let lastLocation = window.location.href;
     const locationIntervalId = window.setInterval(() => {
       if (lastLocation !== window.location.href) {
         lastLocation = window.location.href;
-        scheduleTranslationRepair(500);
+        const storedLanguage = readStoredLanguage() || selectedLanguage;
+        setTranslationPending(storedLanguage && storedLanguage !== 'en');
+        scheduleTranslationRepair(350);
+        clearTranslationPendingSoon(2400, 650);
       }
     }, 800);
     const repairOnFocus = () => scheduleTranslationRepair(250);
@@ -257,7 +339,13 @@ export function GoogleTranslate() {
     const retryIntervalId = retryApplySelectedLanguage();
 
     return () => {
+      if (initialFallbackTimeoutId) {
+        window.clearTimeout(initialFallbackTimeoutId);
+      }
       observer.disconnect();
+      contentObserver.disconnect();
+      window.clearTimeout(contentRepairTimeoutRef.current);
+      window.clearInterval(observeContentIntervalId);
       window.clearInterval(retryIntervalId);
       window.clearInterval(locationIntervalId);
       window.clearTimeout(repairTimeoutRef.current);
@@ -328,6 +416,13 @@ export function GoogleTranslate() {
     </div>
   );
 }
+
+
+
+
+
+
+
 
 
 
