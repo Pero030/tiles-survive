@@ -16,6 +16,7 @@ const navItems = [
   ['navWorldMap', '/world-map'],
   ['navPatches', '/patches'],
   ['navChat', '/chat'],
+  ['navForum', '/forum'],
   ['navTips', '/tips'],
   ['navFaq', '/faq'],
 ];
@@ -24,6 +25,7 @@ const fixedNavLabels = {
   navEvents: 'Events',
   navFaq: 'FAQ',
   navChat: 'Chat',
+  navForum: 'Forum',
   navProjectAegis: '🛡️ Project Aegis',
 };
 
