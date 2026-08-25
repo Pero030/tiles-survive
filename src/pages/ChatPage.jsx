@@ -1,5 +1,5 @@
-import { Ban, Bell, BellOff, ImagePlus, LockKeyhole, MessageCircle, Plus, Search, Send, Settings, ShieldCheck, SmilePlus, Trash2, UserPlus, Users, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, Ban, Bell, BellOff, ImagePlus, LockKeyhole, MessageCircle, Plus, Search, Send, Settings, ShieldCheck, SmilePlus, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authService } from '../features/auth/authService.js';
 import { chatService } from '../features/chat/chatService.js';
@@ -229,6 +229,7 @@ export default function ChatPage() {
   const [privateBuilderOpen, setPrivateBuilderOpen] = useState(false);
   const [allianceSubBuilderOpen, setAllianceSubBuilderOpen] = useState(false);
   const [allianceSubTitle, setAllianceSubTitle] = useState('');
+  const [draggedAllianceSubRoomId, setDraggedAllianceSubRoomId] = useState('');
   const listRef = useRef(null);
   const textareaRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -466,8 +467,9 @@ export default function ChatPage() {
     }
   }, [activeRoom?.id, activeRoom?.invitePolicy, activeRoom?.title, activeRoom?.type]);
 
-  useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' });
+  useLayoutEffect(() => {
+    if (!listRef.current) return;
+    listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages.length, activeRoom?.id]);
 
   useEffect(() => () => {
@@ -697,6 +699,39 @@ export default function ChatPage() {
       setAllianceAction(false);
     }
   };
+  const handleAllianceSubRoomDrop = async (targetRoomId) => {
+    if (!draggedAllianceSubRoomId || draggedAllianceSubRoomId === targetRoomId || !liveAllianceRoom?.id || !canCreateAllianceSubRoom) {
+      setDraggedAllianceSubRoomId('');
+      return;
+    }
+
+    const currentIndex = allianceSubRooms.findIndex((room) => room.id === draggedAllianceSubRoomId);
+    const targetIndex = allianceSubRooms.findIndex((room) => room.id === targetRoomId);
+    if (currentIndex < 0 || targetIndex < 0) {
+      setDraggedAllianceSubRoomId('');
+      return;
+    }
+
+    const nextRooms = [...allianceSubRooms];
+    const [draggedRoom] = nextRooms.splice(currentIndex, 1);
+    nextRooms.splice(targetIndex, 0, draggedRoom);
+    const orderedRooms = nextRooms.map((room, index) => ({ ...room, order: index + 1 }));
+
+    setDraggedAllianceSubRoomId('');
+    setAllianceSubRooms(orderedRooms);
+    setStatus('');
+    setStatusTone('info');
+
+    try {
+      await chatService.reorderAllianceSubRooms(liveAllianceRoom.id, orderedRooms.map((room) => room.id));
+      setStatusTone('success');
+      setStatus('Sub chat order saved.');
+    } catch (error) {
+      setStatusTone('error');
+      setStatus(error.message || 'Sub chat order could not be saved.');
+    }
+  };
+
   const handleRequestAllianceAccess = async () => {
     setStatus('');
     setAllianceAction(true);
@@ -1316,6 +1351,18 @@ export default function ChatPage() {
   ].filter(Boolean).join(' ');
 
   const totalUnreadRooms = rooms.filter((room) => hasUnreadMessages(room)).length;
+  const isRoomDetailOpen = roomCategory === 'global' || Boolean(activeRoomId) || privateBuilderOpen || allianceSubBuilderOpen;
+
+  const handleBackToRoomList = () => {
+    setActiveRoomId('');
+    setMessages([]);
+    setGlobalPanel('');
+    setAlliancePanel('');
+    setPrivatePanel('');
+    setPrivateBuilderOpen(false);
+    setAllianceSubBuilderOpen(false);
+    setSelectedChatUser(null);
+  };
 
   const handleSelectRoomCategory = (category) => {
     setRoomCategory(category);
@@ -1398,7 +1445,11 @@ export default function ChatPage() {
             {privateRooms.some((room) => hasUnreadMessages(room)) ? <strong>{privateRooms.filter((room) => hasUnreadMessages(room)).length}</strong> : null}
           </button>
         </div>
-        <div className={roomCategory === 'global' ? 'chat-room-layout is-global' : 'chat-room-layout'}>
+        <div className={[
+          'chat-room-layout',
+          roomCategory === 'global' ? 'is-global' : '',
+          isRoomDetailOpen ? 'is-detail-open' : 'is-list-open',
+        ].filter(Boolean).join(' ')}>
           {roomCategory !== 'global' ? <aside className="chat-room-sidebar">
 
             {roomCategory === 'alliance' ? (
@@ -1413,7 +1464,26 @@ export default function ChatPage() {
                     </button>
                     <div className="chat-alliance-subrooms">
                       {allianceSubRooms.map((room) => (
-                        <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => setActiveRoomId(room.id)}>
+                        <button
+                          className={`${getRoomButtonClass(room)}${draggedAllianceSubRoomId === room.id ? ' is-dragging' : ''}`}
+                          draggable={canCreateAllianceSubRoom}
+                          key={room.id}
+                          onClick={() => setActiveRoomId(room.id)}
+                          onDragEnd={() => setDraggedAllianceSubRoomId('')}
+                          onDragOver={(event) => { if (canCreateAllianceSubRoom) event.preventDefault(); }}
+                          onDragStart={(event) => {
+                            if (!canCreateAllianceSubRoom) return;
+                            setDraggedAllianceSubRoomId(room.id);
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', room.id);
+                          }}
+                          onDrop={(event) => {
+                            event.preventDefault();
+                            handleAllianceSubRoomDrop(room.id);
+                          }}
+                          title={canCreateAllianceSubRoom ? 'Drag to reorder' : undefined}
+                          type="button"
+                        >
                           <MessageCircle size={15} />
                           <span>{room.title}</span>
                           {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
@@ -1482,6 +1552,12 @@ export default function ChatPage() {
 
           <main className="chat-main-panel">
             <div className="chat-room-heading">
+              {roomCategory !== 'global' && isRoomDetailOpen ? (
+                <button className="chat-mobile-back-button" type="button" onClick={handleBackToRoomList} aria-label="Back to chat list">
+                  <ArrowLeft size={17} />
+                  <span>Chats</span>
+                </button>
+              ) : null}
               <div>
                 <span>{activeRoom.type === 'global' ? 'Global chat' : activeRoom.type === 'alliance' ? 'Alliance chat' : activeRoom.type === 'allianceSub' ? 'Alliance sub chat' : 'Private chat'}</span>
                 <h2>{privateBuilderOpen ? 'New private chat' : allianceSubBuilderOpen ? 'New alliance sub chat' : roomCategory === 'private' && !activeRoomId ? 'Private' : activeRoomDisplayTitle}</h2>
