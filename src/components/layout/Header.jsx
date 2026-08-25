@@ -23,6 +23,7 @@ const navItems = [
 const fixedNavLabels = {
   navEvents: 'Events',
   navFaq: 'FAQ',
+  navChat: 'Chat',
   navProjectAegis: '🛡️ Project Aegis',
 };
 
