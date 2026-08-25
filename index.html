@@ -1,10 +1,31 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Language" content="en" />
     <meta name="google" content="notranslate" />
+    <style>
+      html.translation-pending #main-content {
+        opacity: 0;
+        visibility: hidden;
+      }
+    </style>
+    <script>
+      (function () {
+        try {
+          var cookieMatch = document.cookie.match(/(?:^|; )googtrans=([^;]+)/);
+          var cookieLanguage = cookieMatch ? decodeURIComponent(cookieMatch[1]).split('/').filter(Boolean).pop() : '';
+          var language = String(localStorage.getItem('tiles-survive-language') || cookieLanguage || '').toLowerCase();
+          if (language && language !== 'en') {
+            document.documentElement.lang = language;
+            document.documentElement.classList.add('translation-pending');
+          }
+        } catch (error) {
+          document.documentElement.classList.remove('translation-pending');
+        }
+      })();
+    </script>
     <meta
       name="description"
       content="A professional Tiles Survive guide with events, heroes, villages, alliance strategy, buildings, maps, tips, and FAQ."
@@ -19,6 +40,10 @@
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
+
+
+
+
 
 
 
