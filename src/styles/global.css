@@ -7751,3 +7751,36 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
     min-height: calc(100svh - 10.8rem);
   }
 }
+
+/* Keep chat header action buttons compact next to each other on phones. */
+@media (max-width: 760px) {
+  .chat-page .chat-room-heading-actions {
+    align-items: center;
+    display: grid;
+    gap: 0.28rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .chat-page .chat-room-heading-actions .chat-heading-action {
+    border-radius: 0.6rem;
+    font-size: 0.64rem;
+    gap: 0.16rem;
+    min-height: 1.9rem;
+    padding: 0.24rem 0.22rem;
+    white-space: nowrap;
+    width: 100%;
+  }
+
+  .chat-page .chat-room-heading-actions .chat-heading-action svg {
+    flex: 0 0 auto;
+    height: 0.82rem;
+    width: 0.82rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .chat-page .chat-room-heading-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
