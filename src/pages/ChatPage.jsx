@@ -223,6 +223,7 @@ export default function ChatPage() {
   const [allianceRolePermission, setAllianceRolePermission] = useState('member');
   const [allianceDeleteConfirmation, setAllianceDeleteConfirmation] = useState('');
   const [roomCategory, setRoomCategory] = useState('alliance');
+  const [roomListOpen, setRoomListOpen] = useState(true);
   const [globalPanel, setGlobalPanel] = useState('');
   const [alliancePanel, setAlliancePanel] = useState('');
   const [privatePanel, setPrivatePanel] = useState('');
@@ -1351,11 +1352,10 @@ export default function ChatPage() {
   ].filter(Boolean).join(' ');
 
   const totalUnreadRooms = rooms.filter((room) => hasUnreadMessages(room)).length;
-  const isRoomDetailOpen = roomCategory === 'global' || Boolean(activeRoomId) || privateBuilderOpen || allianceSubBuilderOpen;
+  const isRoomDetailOpen = roomCategory === 'global' || (!roomListOpen && (Boolean(activeRoomId) || privateBuilderOpen || allianceSubBuilderOpen));
 
   const handleBackToRoomList = () => {
-    setActiveRoomId('');
-    setMessages([]);
+    setRoomListOpen(true);
     setGlobalPanel('');
     setAlliancePanel('');
     setPrivatePanel('');
@@ -1372,6 +1372,7 @@ export default function ChatPage() {
     setPrivateBuilderOpen(false);
     setAllianceSubBuilderOpen(false);
     setSelectedChatUser(null);
+    setRoomListOpen(category !== 'global');
 
     if (category === 'private') {
       setActiveRoomId('');
@@ -1457,7 +1458,7 @@ export default function ChatPage() {
                 <h2>Alliance</h2>
                 {liveAllianceRoom ? (
                   <>
-                    <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => setActiveRoomId(liveAllianceRoom.id)}>
+                    <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => { setActiveRoomId(liveAllianceRoom.id); setRoomListOpen(false); }}>
                       <ShieldCheck size={17} />
                       <span>{liveAllianceRoom.title}</span>
                       {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
@@ -1468,7 +1469,7 @@ export default function ChatPage() {
                           className={`${getRoomButtonClass(room)}${draggedAllianceSubRoomId === room.id ? ' is-dragging' : ''}`}
                           draggable={canCreateAllianceSubRoom}
                           key={room.id}
-                          onClick={() => setActiveRoomId(room.id)}
+                          onClick={() => { setActiveRoomId(room.id); setRoomListOpen(false); }}
                           onDragEnd={() => setDraggedAllianceSubRoomId('')}
                           onDragOver={(event) => { if (canCreateAllianceSubRoom) event.preventDefault(); }}
                           onDragStart={(event) => {
@@ -1490,7 +1491,7 @@ export default function ChatPage() {
                         </button>
                       ))}
                       {canCreateAllianceSubRoom && !allianceSubRoomLimitReached ? (
-                        <button className="chat-add-subroom-button" type="button" onClick={() => { setAllianceSubBuilderOpen(true); setAlliancePanel(''); }} disabled={allianceAction} aria-label="Create alliance sub chat">
+                        <button className="chat-add-subroom-button" type="button" onClick={() => { setAllianceSubBuilderOpen(true); setAlliancePanel(''); setRoomListOpen(false); }} disabled={allianceAction} aria-label="Create alliance sub chat">
                           <Plus size={34} />
                         </button>
                       ) : null}
@@ -1519,7 +1520,7 @@ export default function ChatPage() {
                 <div className="chat-room-group chat-private-room-group">
                   <h2>Private</h2>
                   {!privateBuilderOpen ? (
-                    <button className="chat-create-room-button chat-private-create-button" type="button" onClick={() => { setActiveRoomId(''); setMessages([]); setPrivateBuilderOpen(true); setPrivatePanel(''); setSelectedChatUser(null); }}>
+                    <button className="chat-create-room-button chat-private-create-button" type="button" onClick={() => { setActiveRoomId(''); setMessages([]); setPrivateBuilderOpen(true); setPrivatePanel(''); setSelectedChatUser(null); setRoomListOpen(false); }}>
                       <Plus size={24} />
                       <span>New private chat</span>
                     </button>
@@ -1532,7 +1533,7 @@ export default function ChatPage() {
                       const memberCount = room.memberCount || Object.keys(room.memberUids || {}).length || 1;
 
                       return (
-                        <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => { setActiveRoomId(room.id); setPrivateBuilderOpen(false); setPrivatePanel(''); }}>
+                        <button className={getRoomButtonClass(room)} key={room.id} type="button" onClick={() => { setActiveRoomId(room.id); setPrivateBuilderOpen(false); setPrivatePanel(''); setRoomListOpen(false); }}>
                           {directProfile ? (
                             <span className={directProfile.photoURL ? 'chat-room-direct-avatar has-photo' : 'chat-room-direct-avatar'} translate="no">
                               {directProfile.photoURL ? <img src={directProfile.photoURL} alt="" /> : directInitial}
