@@ -9,6 +9,7 @@ const FaqPage = lazy(() => import('../pages/FaqPage.jsx'));
 const PatchesPage = lazy(() => import('../pages/PatchesPage.jsx'));
 const UserLoginPage = lazy(() => import('../pages/UserLoginPage.jsx'));
 const ChatPage = lazy(() => import('../pages/ChatPage.jsx'));
+const ForumPage = lazy(() => import('../pages/ForumPage.jsx'));
 const AdminLoginPage = lazy(() => import('../pages/AdminLoginPage.jsx'));
 const NotFoundPage = lazy(() => import('../pages/NotFoundPage.jsx'));
 
@@ -34,6 +35,7 @@ export function AppRoutes() {
         <Route path="faq" element={<FaqPage />} />
         <Route path="login" element={<UserLoginPage />} />
         <Route path="chat" element={<ChatPage />} />
+        <Route path="forum" element={<ForumPage />} />
         <Route path="secret-admin" element={<AdminLoginPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
