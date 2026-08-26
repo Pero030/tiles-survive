@@ -143,8 +143,6 @@ export function GoogleTranslate() {
   const wrapperRef = useRef(null);
   const appliedLanguageRef = useRef('');
   const repairTimeoutRef = useRef(null);
-  const contentRepairTimeoutRef = useRef(null);
-  const contentRepairCooldownRef = useRef(0);
 
   useEffect(() => {
     const initialFallbackTimeoutId = selectedLanguage && selectedLanguage !== 'en'
@@ -163,7 +161,7 @@ export function GoogleTranslate() {
 
       if (didApply) {
         appliedLanguageRef.current = languageToApply;
-        setSelectedLanguage(languageToApply);
+        setSelectedLanguage((current) => (current === languageToApply ? current : languageToApply));
         clearTranslationPendingSoon(languageToApply === 'en' ? 0 : 2200, 500);
       }
 
@@ -176,6 +174,10 @@ export function GoogleTranslate() {
         const storedLanguage = readStoredLanguage() || selectedLanguage;
         if (!storedLanguage || storedLanguage === 'en') {
           setTranslationPending(false);
+          return;
+        }
+
+        if (appliedLanguageRef.current === storedLanguage && hasGoogleTranslatedPage()) {
           return;
         }
 
@@ -192,7 +194,7 @@ export function GoogleTranslate() {
       const intervalId = window.setInterval(() => {
         tries += 1;
         const storedLanguage = readStoredLanguage() || selectedLanguage;
-        const shouldDispatch = storedLanguage !== 'en' && (appliedLanguageRef.current !== storedLanguage || tries === 4 || tries === 12);
+        const shouldDispatch = storedLanguage !== 'en' && appliedLanguageRef.current !== storedLanguage && tries === 4;
         const didApply = applySelectedLanguage(shouldDispatch, storedLanguage);
         if ((didApply && (storedLanguage === 'en' || tries >= 12)) || tries >= 24) {
           window.clearInterval(intervalId);
@@ -262,66 +264,6 @@ export function GoogleTranslate() {
       observer.observe(wrapperRef.current, { childList: true, subtree: true });
     }
 
-    // Watch only the app content for new React/Firebase content after reload/navigation.
-
-    const scheduleContentTranslationRepair = () => {
-      const storedLanguage = readStoredLanguage() || selectedLanguage;
-      if (!storedLanguage || storedLanguage === 'en') {
-        setTranslationPending(false);
-        return;
-      }
-
-      const now = Date.now();
-      if (now - contentRepairCooldownRef.current < 1800) {
-        return;
-      }
-
-      window.clearTimeout(contentRepairTimeoutRef.current);
-      setTranslationPending(true);
-      contentRepairTimeoutRef.current = window.setTimeout(() => {
-        contentRepairCooldownRef.current = Date.now();
-        storeSelectedLanguage(storedLanguage);
-        applySelectedLanguage(true, storedLanguage);
-        window.setTimeout(notifyTranslationChange, 600);
-        clearTranslationPendingSoon(2400, 700);
-      }, 320);
-    };
-
-    const contentObserver = new MutationObserver((mutations) => {
-      const hasRealContentChange = mutations.some((mutation) => Array.from(mutation.addedNodes || []).some((node) => {
-        if (node.nodeType === Node.TEXT_NODE) {
-          return String(node.textContent || '').trim().length > 0;
-        }
-
-        if (node.nodeType !== Node.ELEMENT_NODE) {
-          return false;
-        }
-
-        if (node.closest?.('form, input, textarea, select, [contenteditable="true"], .chat-page, .forum-page, .global-translate, .skiptranslate, .goog-te-menu-frame, .goog-te-banner-frame')) {
-          return false;
-        }
-
-        return String(node.textContent || '').trim().length > 0;
-      }));
-
-      if (hasRealContentChange) {
-        scheduleContentTranslationRepair();
-      }
-    });
-
-    const observeContentWhenReady = () => {
-      const mainContent = document.getElementById('main-content');
-      if (!mainContent || mainContent.dataset.translationObserved === 'true') {
-        return;
-      }
-
-      mainContent.dataset.translationObserved = 'true';
-      contentObserver.observe(mainContent, { childList: true, subtree: true });
-    };
-
-    observeContentWhenReady();
-    const observeContentIntervalId = window.setInterval(observeContentWhenReady, 500);
-
     let lastLocation = window.location.href;
     const locationIntervalId = window.setInterval(() => {
       if (lastLocation !== window.location.href) {
@@ -332,9 +274,6 @@ export function GoogleTranslate() {
         clearTranslationPendingSoon(2400, 650);
       }
     }, 800);
-    const repairOnFocus = () => scheduleTranslationRepair(250);
-    window.addEventListener('focus', repairOnFocus);
-    document.addEventListener('visibilitychange', repairOnFocus);
 
     const retryIntervalId = retryApplySelectedLanguage();
 
@@ -343,14 +282,9 @@ export function GoogleTranslate() {
         window.clearTimeout(initialFallbackTimeoutId);
       }
       observer.disconnect();
-      contentObserver.disconnect();
-      window.clearTimeout(contentRepairTimeoutRef.current);
-      window.clearInterval(observeContentIntervalId);
       window.clearInterval(retryIntervalId);
       window.clearInterval(locationIntervalId);
       window.clearTimeout(repairTimeoutRef.current);
-      window.removeEventListener('focus', repairOnFocus);
-      document.removeEventListener('visibilitychange', repairOnFocus);
     };
   }, [selectedLanguage]);
 
