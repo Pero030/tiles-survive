@@ -6300,6 +6300,18 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   font-weight: 950;
 }
 
+.chat-status.is-success {
+  color: #177f4f;
+}
+
+.chat-status.is-info {
+  color: #376177;
+}
+
+.chat-status.is-error {
+  color: #b33824;
+}
+
 .chat-locked-panel {
   display: grid;
   gap: 0.9rem;
@@ -9869,7 +9881,7 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
 }
 
 /* Hide only page content briefly while Google Translate reapplies after reload/navigation. */
-html.translation-pending #main-content {
+html.translation-pending #main-content:not(.is-chat-content) {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
