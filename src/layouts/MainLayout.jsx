@@ -21,6 +21,7 @@ const setPendingForSavedTranslation = () => {
 export function MainLayout() {
   const { t } = useLanguage();
   const location = useLocation();
+  const isChatPage = location.pathname.replace(/\/+$/, '') === '/chat';
 
   useLayoutEffect(() => {
     let timeoutId;
@@ -45,7 +46,7 @@ export function MainLayout() {
         {t('skipToContent')}
       </a>
       <Header />
-      <main id="main-content">
+      <main id="main-content" className={isChatPage ? 'is-chat-content' : undefined}>
         <Outlet />
       </main>
       <Footer />
