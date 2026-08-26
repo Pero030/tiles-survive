@@ -9880,12 +9880,11 @@ html body span.VIpgJd-yAWNEb-VIpgJd-fmcmS-sn54Q {
   }
 }
 
-/* Hide only page content briefly while Google Translate reapplies after reload/navigation. */
-html.translation-pending #main-content:not(.is-chat-content) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transition: opacity 120ms ease;
+/* Keep forms stable while Google Translate reapplies after reload/navigation. */
+html.translation-pending #main-content {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 /* Forum column labels need clear separation after browser translation. */
