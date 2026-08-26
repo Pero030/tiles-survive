@@ -297,7 +297,7 @@ export function GoogleTranslate() {
           return false;
         }
 
-        if (node.closest?.('.global-translate, .skiptranslate, .goog-te-menu-frame, .goog-te-banner-frame')) {
+        if (node.closest?.('.chat-page, .global-translate, .skiptranslate, .goog-te-menu-frame, .goog-te-banner-frame')) {
           return false;
         }
 
