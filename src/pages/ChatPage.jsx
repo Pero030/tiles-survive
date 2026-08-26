@@ -231,6 +231,7 @@ export default function ChatPage() {
   const [allianceSubBuilderOpen, setAllianceSubBuilderOpen] = useState(false);
   const [allianceSubTitle, setAllianceSubTitle] = useState('');
   const [draggedAllianceSubRoomId, setDraggedAllianceSubRoomId] = useState('');
+  const [statusTone, setStatusTone] = useState('info');
   const listRef = useRef(null);
   const textareaRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -298,22 +299,32 @@ export default function ChatPage() {
 
   const globalRoom = useMemo(() => chatService.getGlobalRoom(), []);
   const allianceRoom = useMemo(() => chatService.getAllianceRoomForProfile(profile), [profile?.gameServer, profile?.allianceTag]);
-  const liveGlobalRoom = publicRoomSnapshots.global ? { ...globalRoom, ...publicRoomSnapshots.global } : globalRoom;
+  const liveGlobalRoom = useMemo(
+    () => (publicRoomSnapshots.global ? { ...globalRoom, ...publicRoomSnapshots.global } : globalRoom),
+    [globalRoom, publicRoomSnapshots.global],
+  );
   const allianceRoomSnapshot = allianceRoom ? publicRoomSnapshots[allianceRoom.id] : null;
-  const liveAllianceRoom = allianceRoomSnapshot ? { ...allianceRoom, ...allianceRoomSnapshot } : null;
+  const liveAllianceRoom = useMemo(
+    () => (allianceRoomSnapshot ? { ...allianceRoom, ...allianceRoomSnapshot } : null),
+    [allianceRoom, allianceRoomSnapshot],
+  );
   const rooms = useMemo(() => [
     liveGlobalRoom,
     ...(liveAllianceRoom ? [liveAllianceRoom, ...allianceSubRooms] : []),
     ...privateRooms,
   ], [liveGlobalRoom, liveAllianceRoom, allianceSubRooms, privateRooms]);
-  const activeRoomFallback = roomCategory === 'private' && activeRoomId !== 'global' ? {
-    id: activeRoomId,
-    type: 'private',
-    title: 'Private Chat',
-    ownerUid: user?.uid,
-    memberUids: user?.uid ? { [user.uid]: true } : {},
-    memberPermissions: user?.uid ? { [user.uid]: { canInvite: true, canKick: true } } : {},
-  } : liveGlobalRoom;
+  const roomIds = useMemo(() => rooms.map((room) => room.id).filter(Boolean), [rooms]);
+  const activeRoomFallback = useMemo(
+    () => (roomCategory === 'private' && activeRoomId && activeRoomId !== 'global' ? {
+      id: activeRoomId,
+      type: 'private',
+      title: 'Private Chat',
+      ownerUid: user?.uid,
+      memberUids: user?.uid ? { [user.uid]: true } : {},
+      memberPermissions: user?.uid ? { [user.uid]: { canInvite: true, canKick: true } } : {},
+    } : liveGlobalRoom),
+    [activeRoomId, liveGlobalRoom, roomCategory, user?.uid],
+  );
   const activeRoom = rooms.find((room) => room.id === activeRoomId) || activeRoomFallback;
   const isCreatePanelOpen = privateBuilderOpen || allianceSubBuilderOpen;
   const isRoomPanelOpen = Boolean(globalPanel || alliancePanel || privatePanel);
@@ -368,10 +379,10 @@ export default function ChatPage() {
   useEffect(() => {
     if (!activeRoomId) return;
 
-    if (!rooms.some((room) => room.id === activeRoomId)) {
+    if (!roomIds.includes(activeRoomId)) {
       setActiveRoomId(roomCategory === 'private' ? '' : 'global');
     }
-  }, [activeRoomId, roomCategory, rooms]);
+  }, [activeRoomId, roomCategory, roomIds]);
   useEffect(() => {
     if (roomCategory === 'alliance' && liveAllianceRoom && activeRoom.type !== 'alliance' && activeRoom.type !== 'allianceSub') {
       setActiveRoomId(liveAllianceRoom.id);
@@ -2111,7 +2122,7 @@ export default function ChatPage() {
               )}
             </div> : null}
 
-            {status ? <strong className="chat-status">{status}</strong> : null}
+            {status ? <strong className={`chat-status is-${statusTone}`}>{status}</strong> : null}
 
             {hasActiveChatRoom && canUseActiveRoom && !canWriteActiveRoom ? (
               <div className="chat-read-only-note">
