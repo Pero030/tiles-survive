@@ -120,22 +120,25 @@ const assertCanReadRoom = async ({ roomId, uid }) => {
     const sameServer = normalizeServer(profile.gameServer) === normalizeServer(room.gameServer);
     const sameTag = normalizeAllianceTag(profile.allianceTag) === normalizeAllianceTag(room.allianceTag);
     let isApprovedMember = room.memberUids?.[uid] === true;
+    let parentRoom = null;
 
-    if (!isApprovedMember && room.type === 'allianceSub' && room.parentRoomId) {
+    if (room.type === 'allianceSub' && room.parentRoomId) {
       const parentSnapshot = await db.doc(`chatRooms/${room.parentRoomId}`).get();
-      const parentRoom = parentSnapshot.exists ? parentSnapshot.data() || {} : {};
-      isApprovedMember = parentRoom.memberUids?.[uid] === true;
+      parentRoom = parentSnapshot.exists ? parentSnapshot.data() || {} : {};
+      if (!isApprovedMember) {
+        isApprovedMember = parentRoom.memberUids?.[uid] === true;
+      }
     }
 
     if (sameServer && sameTag && isApprovedMember) {
       if (room.type === 'allianceSub' && room.audience === 'leaders') {
-        const role = room.memberRoles?.[uid];
-        const isLeader = room.ownerUid === uid || role === 'owner' || role === 'admin';
+        const role = room.memberRoles?.[uid] || parentRoom?.memberRoles?.[uid];
+        const isLeader = room.ownerUid === uid || parentRoom?.ownerUid === uid || role === 'owner' || role === 'admin';
         if (!isLeader) {
           throw new HttpsError('permission-denied', 'This leader chat is restricted.');
         }
       }
-      return room;
+      return parentRoom ? { ...room, parentRoom } : room;
     }
 
     throw new HttpsError('permission-denied', 'You are not an approved member of this alliance chat.');
@@ -256,8 +259,8 @@ exports.createChatImageUpload = onCall({
 
   const room = await assertCanReadRoom({ roomId, uid });
   if (room?.type === 'allianceSub' && room.memberCanWrite === false) {
-    const role = room.memberRoles?.[uid];
-    const canManage = room.ownerUid === uid || role === 'owner' || role === 'admin';
+    const role = room.memberRoles?.[uid] || room.parentRoom?.memberRoles?.[uid];
+    const canManage = room.ownerUid === uid || room.parentRoom?.ownerUid === uid || role === 'owner' || role === 'admin';
     if (!canManage) {
       throw new HttpsError('permission-denied', 'Only alliance chat owner/admins can upload images in this sub chat.');
     }
