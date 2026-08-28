@@ -1,4 +1,4 @@
-import { CheckCircle2, Flag, LockKeyhole, MessageSquare, Pin, Plus, Search, Send, Trash2, Unlock, User, X } from 'lucide-react';
+import { CheckCircle2, Flag, LockKeyhole, MessageSquare, Pin, Plus, Search, Send, Settings, Trash2, Unlock, User, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authService } from '../features/auth/authService.js';
@@ -78,10 +78,14 @@ export default function ForumPage() {
   const [newThread, setNewThread] = useState({ categoryId: 'general', title: '', tags: '', body: '' });
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
+  const [forumActionsOpen, setForumActionsOpen] = useState(false);
 
   useEffect(() => authService.subscribe(setUser), []);
   useEffect(() => subscribeToAdminUsers(setAdminUsers, (error) => setStatus(error.message || 'Could not load admin state.')), []);
   useEffect(() => forumService.subscribeToThreads(setThreads, (error) => setStatus(error.message || 'Could not load forum topics.')), []);
+  useEffect(() => {
+    setForumActionsOpen(false);
+  }, [selectedThreadId, isCreating]);
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) || null;
   const isAdmin = forumService.canModerate(user, adminUsers);
@@ -316,12 +320,19 @@ export default function ForumPage() {
                     <h2>{selectedThread.title}</h2>
                     <AuthorBadge item={selectedThread} />
                   </div>
-                  <div className="forum-topic-actions">
-                    <button type="button" onClick={() => handleThreadUpdate({ solved: !selectedThread.solved })} disabled={busy || !canEditSelectedThread}><CheckCircle2 size={15} /> {selectedThread.solved ? 'Unsolve' : 'Solved'}</button>
-                    {isAdmin ? <button type="button" onClick={() => handleThreadUpdate({ pinned: !selectedThread.pinned })} disabled={busy}><Pin size={15} /> {selectedThread.pinned ? 'Unpin' : 'Pin'}</button> : null}
-                    {isAdmin ? <button type="button" onClick={() => handleThreadUpdate({ locked: !selectedThread.locked })} disabled={busy}>{selectedThread.locked ? <Unlock size={15} /> : <LockKeyhole size={15} />} {selectedThread.locked ? 'Unlock' : 'Lock'}</button> : null}
-                    {canEditSelectedThread ? <button className="is-danger" type="button" onClick={handleDeleteThread} disabled={busy}><Trash2 size={15} /> Delete</button> : null}
-                    {user ? <button type="button" onClick={handleReportThread} disabled={busy}><Flag size={15} /> Report</button> : null}
+                  <div className="forum-topic-settings">
+                    <button className={forumActionsOpen ? 'forum-settings-toggle is-active' : 'forum-settings-toggle'} type="button" onClick={() => setForumActionsOpen((current) => !current)} aria-expanded={forumActionsOpen}>
+                      <Settings size={15} /> Settings
+                    </button>
+                    {forumActionsOpen ? (
+                      <div className="forum-topic-actions">
+                        <button type="button" onClick={() => handleThreadUpdate({ solved: !selectedThread.solved })} disabled={busy || !canEditSelectedThread}><CheckCircle2 size={15} /> {selectedThread.solved ? 'Unsolve' : 'Solved'}</button>
+                        {isAdmin ? <button type="button" onClick={() => handleThreadUpdate({ pinned: !selectedThread.pinned })} disabled={busy}><Pin size={15} /> {selectedThread.pinned ? 'Unpin' : 'Pin'}</button> : null}
+                        {isAdmin ? <button type="button" onClick={() => handleThreadUpdate({ locked: !selectedThread.locked })} disabled={busy}>{selectedThread.locked ? <Unlock size={15} /> : <LockKeyhole size={15} />} {selectedThread.locked ? 'Unlock' : 'Lock'}</button> : null}
+                        {canEditSelectedThread ? <button className="is-danger" type="button" onClick={handleDeleteThread} disabled={busy}><Trash2 size={15} /> Delete</button> : null}
+                        {user ? <button type="button" onClick={handleReportThread} disabled={busy}><Flag size={15} /> Report</button> : null}
+                      </div>
+                    ) : null}
                   </div>
                 </header>
 
