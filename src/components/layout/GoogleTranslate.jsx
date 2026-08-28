@@ -44,6 +44,31 @@ const clearTranslationPendingSoon = (delay = 2200, minimumDelay = 450) => {
 
   window.setTimeout(check, 250);
 };
+const googleTranslateOverlaySelector = [
+  '.goog-te-spinner-pos',
+  '.goog-te-spinner',
+  '.goog-te-spinner-animation',
+  '.goog-te-balloon-frame',
+  '.goog-tooltip',
+  '.VIpgJd-ZVi9od-aZ2wEe',
+  '.VIpgJd-ZVi9od-aZ2wEe-wOHMyf',
+  '.VIpgJd-ZVi9od-aZ2wEe-OiiCO',
+  '.VIpgJd-ZVi9od-xl07Ob-OEVmcd',
+  'iframe[id^="goog-gt-"]',
+  'div[id^="goog-gt-"]',
+].join(',');
+
+const hideGoogleTranslateOverlays = () => {
+  if (typeof document === 'undefined') return;
+  document.querySelectorAll(googleTranslateOverlaySelector).forEach((element) => {
+    if (element.closest?.('.global-translate')) return;
+    element.setAttribute('aria-hidden', 'true');
+    element.style.setProperty('display', 'none', 'important');
+    element.style.setProperty('visibility', 'hidden', 'important');
+    element.style.setProperty('opacity', '0', 'important');
+    element.style.setProperty('pointer-events', 'none', 'important');
+  });
+};
 
 const normalizeLanguageCode = (languageCode) => String(languageCode || '')
   .trim()
@@ -289,6 +314,17 @@ export function GoogleTranslate() {
   }, [selectedLanguage]);
 
 
+  useEffect(() => {
+    hideGoogleTranslateOverlays();
+    const googleOverlayObserver = new MutationObserver(hideGoogleTranslateOverlays);
+    googleOverlayObserver.observe(document.body, { childList: true, subtree: true });
+    const overlayCleanupInterval = window.setInterval(hideGoogleTranslateOverlays, 1000);
+
+    return () => {
+      googleOverlayObserver.disconnect();
+      window.clearInterval(overlayCleanupInterval);
+    };
+  }, []);
   useEffect(() => {
     const stopGoogleTranslateHover = (event) => {
       if (event.target?.closest?.('.goog-text-highlight')) {

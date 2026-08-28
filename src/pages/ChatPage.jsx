@@ -53,15 +53,44 @@ const getStoredChatLanguage = () => {
 };
 
 const cleanMentionName = (name) => String(name || 'Player').trim().replace(/\s+/g, ' ').slice(0, 40);
+const mentionAllOption = { uid: '__all__', displayName: 'All', isMentionAll: true };
+const escapeRegExp = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-const getMentionQuery = (message) => {
-  const match = String(message || '').match(/(^|\s)@([^\s@]*)$/);
-  return match ? match[2].toLowerCase() : null;
+const getMentionQuery = (message, cursorPosition) => {
+  const value = String(message || '');
+  const cursor = Math.max(0, Math.min(value.length, Number.isInteger(cursorPosition) ? cursorPosition : value.length));
+  const beforeCursor = value.slice(0, cursor);
+  const match = beforeCursor.match(/(^|\s)@([^\s@]*)$/);
+
+  return match ? {
+    query: match[2].toLowerCase(),
+    start: cursor - match[2].length - 1,
+    end: cursor,
+  } : null;
+};
+
+const getMentionMetadata = (message, memberProfiles = []) => {
+  const value = String(message || '');
+  const mentionAll = /(^|\s)@All(?=$|\s|[.,!?;:])/i.test(value);
+  const mentionUids = {};
+
+  if (!mentionAll) {
+    memberProfiles.forEach((profile) => {
+      const name = cleanMentionName(profile.displayName);
+      if (!profile.uid || !name) return;
+      const mentionPattern = new RegExp(`(^|\\s)@${escapeRegExp(name)}(?=$|\\s|[.,!?;:])`, 'i');
+      if (mentionPattern.test(value)) {
+        mentionUids[profile.uid] = true;
+      }
+    });
+  }
+
+  return { mentionAll, mentionUids };
 };
 
 const renderMessageText = (text, memberProfiles = []) => {
   const value = String(text || '');
-  const mentionNames = [...new Set(memberProfiles.map((profile) => cleanMentionName(profile.displayName)).filter(Boolean))]
+  const mentionNames = [...new Set(['All', ...memberProfiles.map((profile) => cleanMentionName(profile.displayName)).filter(Boolean)])]
     .sort((first, second) => second.length - first.length);
   const parts = [];
   let index = 0;
@@ -108,6 +137,21 @@ const getStoredReadState = (uid) => {
 const storeReadState = (uid, state) => {
   if (typeof window === 'undefined' || !uid) return;
   window.localStorage.setItem(`tiles-survive-chat-read-${uid}`, JSON.stringify(state));
+};
+
+const getStoredMentionSeenState = (uid) => {
+  if (typeof window === 'undefined' || !uid) return {};
+
+  try {
+    return JSON.parse(window.localStorage.getItem(`tiles-survive-chat-mentions-seen-${uid}`) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const storeMentionSeenState = (uid, state) => {
+  if (typeof window === 'undefined' || !uid) return;
+  window.localStorage.setItem(`tiles-survive-chat-mentions-seen-${uid}`, JSON.stringify(state));
 };
 
 const getStoredGlobalNotifications = (uid) => {
@@ -191,12 +235,15 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [publicProfiles, setPublicProfiles] = useState([]);
   const [draft, setDraft] = useState('');
+  const [mentionCursor, setMentionCursor] = useState(0);
+  const [highlightedMentionId, setHighlightedMentionId] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedImagePreview, setSelectedImagePreview] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [chatLanguage, setChatLanguage] = useState(() => getStoredChatLanguage());
   const [translatedMessages, setTranslatedMessages] = useState({});
   const [readByRoom, setReadByRoom] = useState(() => getStoredReadState(authService.getCurrentUser()?.uid));
+  const [seenMentionsByRoom, setSeenMentionsByRoom] = useState(() => getStoredMentionSeenState(authService.getCurrentUser()?.uid));
   const [globalNotificationsEnabled, setGlobalNotificationsEnabled] = useState(() => getStoredGlobalNotifications(authService.getCurrentUser()?.uid));
   const [ignoredUsers, setIgnoredUsers] = useState(() => getStoredIgnoredUsers(authService.getCurrentUser()?.uid));
   const [selectedChatUser, setSelectedChatUser] = useState(null);
@@ -247,6 +294,7 @@ export default function ChatPage() {
       setMessages([]);
       setActiveRoomId('global');
       setReadByRoom({});
+      setSeenMentionsByRoom({});
       return undefined;
     }
 
@@ -264,6 +312,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     setReadByRoom(getStoredReadState(user?.uid));
+    setSeenMentionsByRoom(getStoredMentionSeenState(user?.uid));
     setGlobalNotificationsEnabled(getStoredGlobalNotifications(user?.uid));
     setIgnoredUsers(getStoredIgnoredUsers(user?.uid));
     setSelectedChatUser(null);
@@ -576,16 +625,55 @@ export default function ChatPage() {
   const visibleMessages = useMemo(() => messages.filter((message) => (
     message.type === 'system' || !message.uid || message.uid === user?.uid || ignoredUsers[message.uid] !== true
   )), [ignoredUsers, messages, user?.uid]);
-  const mentionQuery = useMemo(() => getMentionQuery(draft), [draft]);
+  const isMessageMentionForCurrentUser = (message) => {
+    if (!user?.uid || message?.uid === user.uid) return false;
+
+    const messageText = String(message?.text || '');
+    const currentMentionName = cleanMentionName(user.displayName || profile.displayName || '');
+    const mentionsAllByText = /(^|\s)@All(?=$|\s|[.,!?;:])/i.test(messageText);
+    const mentionsUserByText = currentMentionName
+      ? new RegExp(`(^|\\s)@${escapeRegExp(currentMentionName)}(?=$|\\s|[.,!?;:])`, 'i').test(messageText)
+      : false;
+
+    return message.mentionsAll === true
+      || message.mentionUids?.[user.uid] === true
+      || mentionsAllByText
+      || mentionsUserByText;
+  };
+
+  const activeMentionMessages = useMemo(() => {
+    if (!activeRoom?.id || !user?.uid) return [];
+
+    return visibleMessages
+      .filter((message) => message.id && isMessageMentionForCurrentUser(message))
+      .sort((first, second) => getTimestampValue(first.createdAt) - getTimestampValue(second.createdAt));
+  }, [activeRoom?.id, profile.displayName, user?.displayName, user?.uid, visibleMessages]);
+
+  const activeMentionMessage = useMemo(() => {
+    if (!activeRoom?.id) return null;
+    const seenMentionIds = seenMentionsByRoom[activeRoom.id] || {};
+
+    return activeMentionMessages.find((message) => seenMentionIds[message.id] !== true) || null;
+  }, [activeMentionMessages, activeRoom?.id, seenMentionsByRoom]);
+  const mentionQuery = useMemo(() => getMentionQuery(draft, mentionCursor), [draft, mentionCursor]);
   const mentionSuggestions = useMemo(() => {
-    if (mentionQuery === null) {
+    if (!mentionQuery) {
       return [];
     }
 
-    return activeRoomMemberProfiles
-      .filter((item) => cleanMentionName(item.displayName).toLowerCase().startsWith(mentionQuery))
-      .slice(0, 8);
-  }, [activeRoomMemberProfiles, mentionQuery]);
+    const suggestions = [];
+    if ('all'.startsWith(mentionQuery.query)) {
+      suggestions.push(mentionAllOption);
+    }
+
+    activeRoomMemberProfiles
+      .filter((item) => item.uid !== user?.uid)
+      .filter((item) => cleanMentionName(item.displayName).toLowerCase().startsWith(mentionQuery.query))
+      .slice(0, Math.max(0, 8 - suggestions.length))
+      .forEach((item) => suggestions.push(item));
+
+    return suggestions;
+  }, [activeRoomMemberProfiles, mentionQuery, user?.uid]);
   const pendingAllianceRequests = useMemo(() => Object.values(allianceManagementRoom.joinRequests || {})
     .filter((request) => request?.status === 'pending'), [allianceManagementRoom.joinRequests]);
   const allianceMemberProfiles = useMemo(() => allVisibleProfiles
@@ -1114,7 +1202,7 @@ export default function ChatPage() {
           size: selectedImage.size,
         }
         : null;
-      await chatService.sendMessage(activeRoom, trimmedDraft, image || undefined);
+      await chatService.sendMessage(activeRoom, trimmedDraft, image || undefined, getMentionMetadata(trimmedDraft, activeRoomMemberProfiles));
       setDraft('');
       setSelectedImage(null);
       setSelectedImagePreview('');
@@ -1170,9 +1258,25 @@ export default function ChatPage() {
   };
 
   const handleSelectMention = (profileItem) => {
-    const mentionName = cleanMentionName(profileItem.displayName);
-    setDraft((current) => current.replace(/(^|\s)@([^\s@]*)$/, `$1@${mentionName} `));
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
+    const mentionName = profileItem.isMentionAll ? 'All' : cleanMentionName(profileItem.displayName);
+    const currentQuery = getMentionQuery(draft, mentionCursor);
+
+    setDraft((current) => {
+      if (!currentQuery) {
+        return current + '@' + mentionName + ' ';
+      }
+
+      return current.slice(0, currentQuery.start) + '@' + mentionName + ' ' + current.slice(currentQuery.end);
+    });
+
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const nextPosition = (currentQuery?.start ?? draft.length) + mentionName.length + 2;
+      textarea.focus();
+      textarea.setSelectionRange(nextPosition, nextPosition);
+      setMentionCursor(nextPosition);
+    });
   };
 
   const handleToggleGlobalNotifications = () => {
@@ -1349,11 +1453,38 @@ export default function ChatPage() {
     }
   };
 
+  const handleJumpToMention = () => {
+    if (!activeRoom?.id || !activeMentionMessage?.id || !listRef.current) return;
+    const escapedId = typeof CSS !== 'undefined' && CSS.escape ? CSS.escape(activeMentionMessage.id) : activeMentionMessage.id.replace(/"/g, '\\"');
+    const target = listRef.current.querySelector(`[data-chat-message-id="${escapedId}"]`);
+    if (!target) return;
+
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setHighlightedMentionId(activeMentionMessage.id);
+    setSeenMentionsByRoom((current) => {
+      const next = {
+        ...current,
+        [activeRoom.id]: {
+          ...(current[activeRoom.id] || {}),
+          [activeMentionMessage.id]: true,
+        },
+      };
+      storeMentionSeenState(user?.uid, next);
+      return next;
+    });
+    window.setTimeout(() => setHighlightedMentionId((current) => (current === activeMentionMessage.id ? '' : current)), 1800);
+  };
+
   const hasUnreadMessages = (room) => {
     if (!room?.id || room.id === activeRoomId) return 0;
     if (room.id === 'global' && !globalNotificationsEnabled) return 0;
     const latest = getTimestampValue(room.lastMessageAt);
     return Boolean(latest && latest > (readByRoom[room.id] || 0));
+  };
+
+  const hasUnreadMention = (room) => {
+    if (!hasUnreadMessages(room) || !user?.uid) return false;
+    return room.lastMentionAll === true || room.lastMentionUids?.[user.uid] === true;
   };
 
   const getRoomButtonClass = (room) => [
@@ -1449,7 +1580,7 @@ export default function ChatPage() {
           <button className={roomCategory === 'global' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('global')}>
             <MessageCircle size={20} />
             <span>Global</span>
-            {hasUnreadMessages(liveGlobalRoom) ? <strong>{'!'}</strong> : null}
+            {(hasUnreadMessages(liveGlobalRoom) || hasUnreadMention(liveGlobalRoom)) ? (               <span className="chat-room-badges">                 {hasUnreadMessages(liveGlobalRoom) ? <strong className="chat-unread-badge">New message</strong> : null}                 {hasUnreadMention(liveGlobalRoom) ? <strong className="chat-mention-badge" title="You were mentioned">@</strong> : null}               </span>             ) : null}
           </button>
           <button className={roomCategory === 'private' ? 'is-active' : ''} type="button" onClick={() => handleSelectRoomCategory('private')}>
             <LockKeyhole size={20} />
@@ -1472,7 +1603,7 @@ export default function ChatPage() {
                     <button className={getRoomButtonClass(liveAllianceRoom)} type="button" onClick={() => { setActiveRoomId(liveAllianceRoom.id); setRoomListOpen(false); }}>
                       <ShieldCheck size={17} />
                       <span>{liveAllianceRoom.title}</span>
-                      {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}
+                      {(hasUnreadMessages(liveAllianceRoom) || hasUnreadMention(liveAllianceRoom)) ? (                         <span className="chat-room-badges">                           {hasUnreadMessages(liveAllianceRoom) ? <strong className="chat-unread-badge">New message</strong> : null}                           {hasUnreadMention(liveAllianceRoom) ? <strong className="chat-mention-badge" title="You were mentioned">@</strong> : null}                         </span>                       ) : null}
                     </button>
                     <div className="chat-alliance-subrooms">
                       {allianceSubRooms.map((room) => (
@@ -1498,7 +1629,7 @@ export default function ChatPage() {
                         >
                           <MessageCircle size={15} />
                           <span>{room.title}</span>
-                          {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
+                          {(hasUnreadMessages(room) || hasUnreadMention(room)) ? (                             <span className="chat-room-badges">                               {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}                               {hasUnreadMention(room) ? <strong className="chat-mention-badge" title="You were mentioned">@</strong> : null}                             </span>                           ) : null}
                         </button>
                       ))}
                       {canCreateAllianceSubRoom && !allianceSubRoomLimitReached ? (
@@ -1552,7 +1683,7 @@ export default function ChatPage() {
                           ) : <LockKeyhole size={17} />}
                           <span>{getRoomDisplayTitle(room)}</span>
                           <small>{memberCount} members</small>
-                          {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}
+                          {(hasUnreadMessages(room) || hasUnreadMention(room)) ? (                             <span className="chat-room-badges">                               {hasUnreadMessages(room) ? <strong className="chat-unread-badge">New message</strong> : null}                               {hasUnreadMention(room) ? <strong className="chat-mention-badge" title="You were mentioned">@</strong> : null}                             </span>                           ) : null}
                         </button>
                       );
                     }) : <p className="chat-room-note">No private chats yet.</p>}
@@ -2091,13 +2222,23 @@ export default function ChatPage() {
               </form>
             ) : null}
             {hasActiveChatRoom && canUseActiveRoom ? <div className="chat-message-list" ref={listRef} aria-live="polite">
+              {activeMentionMessage ? (                 <button className="chat-mention-jump-button" type="button" onClick={handleJumpToMention} aria-label="Jump to mention" title="Jump to mention">                   @                 </button>               ) : null}
               {visibleMessages.length ? visibleMessages.map((message) => (message.type === 'system' ? (
                 <article className="chat-message-system" key={message.id}>
                   <span translate="no">{getDisplayedMessageText(message)}</span>
                   {message.createdAt ? <time>{formatChatTime(message.createdAt)}</time> : null}
                 </article>
               ) : (
-                <article className={message.uid === user.uid ? 'chat-message is-own' : 'chat-message'} key={message.id}>
+                <article
+                  className={[
+                    'chat-message',
+                    message.uid === user.uid ? 'is-own' : '',
+                    isMessageMentionForCurrentUser(message) ? 'is-mentioned' : '',
+                    highlightedMentionId === message.id ? 'is-highlighted-mention' : '',
+                  ].filter(Boolean).join(' ')}
+                  data-chat-message-id={message.id}
+                  key={message.id}
+                >
                   <button className={getMessagePhotoURL(message) ? 'chat-message-avatar has-photo' : 'chat-message-avatar'} type="button" onClick={() => handleOpenChatUser(message)} translate="no" aria-label="Open user actions">
                     {getMessagePhotoURL(message) ? <img src={getMessagePhotoURL(message)} alt="" /> : getMessageInitial(message)}
                   </button>
@@ -2138,7 +2279,12 @@ export default function ChatPage() {
                   id="chat-message"
                   ref={textareaRef}
                   maxLength={800}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={(event) => {
+                    setDraft(event.target.value);
+                    setMentionCursor(event.target.selectionStart || 0);
+                  }}
+                  onClick={(event) => setMentionCursor(event.currentTarget.selectionStart || 0)}
+                  onKeyUp={(event) => setMentionCursor(event.currentTarget.selectionStart || 0)}
                   placeholder={`Write to ${activeRoomDisplayTitle || 'this chat'}...`}
                   rows={3}
                   value={draft}
@@ -2176,8 +2322,8 @@ export default function ChatPage() {
                     {mentionSuggestions.map((mentionProfile) => (
                       <button key={mentionProfile.uid} type="button" onClick={() => handleSelectMention(mentionProfile)}>
                         <Users size={15} />
-                        <span>{cleanMentionName(mentionProfile.displayName)}</span>
-                        <small>{formatUserOption(mentionProfile)}</small>
+                        <span>{mentionProfile.isMentionAll ? '@All' : cleanMentionName(mentionProfile.displayName)}</span>
+                        <small>{mentionProfile.isMentionAll ? 'Notify everyone in this chat' : formatUserOption(mentionProfile)}</small>
                       </button>
                     ))}
                   </div>
@@ -2193,6 +2339,7 @@ export default function ChatPage() {
     </section>
   );
 }
+
 
 
 

@@ -1279,13 +1279,17 @@ export const chatService = {
     await batch.commit();
   },
 
-  async sendMessage(room, message, attachment = null) {
+  async sendMessage(room, message, attachment = null, options = {}) {
     if (!auth.currentUser) {
       throw new Error('Sign in before writing in chat.');
     }
 
     const text = normalizeMessage(message);
     const image = normalizeImageAttachment(attachment);
+    const mentionAll = options?.mentionAll === true;
+    const mentionUids = Object.entries(options?.mentionUids || {})
+      .filter(([uid, mentioned]) => uid && mentioned === true)
+      .reduce((result, [uid]) => ({ ...result, [uid]: true }), {});
     if (!text && !image) {
       throw new Error('Enter a message or choose an image first.');
     }
@@ -1337,11 +1341,15 @@ export const chatService = {
       allianceTag: normalizeAllianceTag(profile.allianceTag),
       displayName: auth.currentUser.displayName || profile.displayName || '',
       photoURL: auth.currentUser.photoURL || profile.photoURL || '',
+      mentionsAll: mentionAll,
+      mentionUids,
       createdAt: serverTimestamp(),
     });
 
     await setDoc(getRoomRef(roomId), {
       lastMessageAt: serverTimestamp(),
+      lastMentionAll: mentionAll,
+      lastMentionUids: mentionUids,
       updatedAt: serverTimestamp(),
     }, { merge: true });
   },
