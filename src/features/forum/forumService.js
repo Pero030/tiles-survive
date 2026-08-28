@@ -13,7 +13,8 @@ import {
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
-import { auth, db, isFirebaseConfigured } from '../../services/firebase.js';
+import { httpsCallable } from 'firebase/functions';
+import { auth, db, functions, isFirebaseConfigured } from '../../services/firebase.js';
 import { authService } from '../auth/authService.js';
 
 const threadsRef = collection(db, 'forumThreads');
@@ -28,6 +29,7 @@ export const forumCategories = [
 ];
 
 const normalizeText = (value, maxLength) => String(value || '').trim().slice(0, maxLength);
+const normalizeLanguageCode = (languageCode) => String(languageCode || '').trim().toLowerCase().replace(/[^a-z-]/g, '').split('-')[0].slice(0, 8) || 'en';
 const normalizeCategory = (categoryId) => forumCategories.some((category) => category.id === categoryId) ? categoryId : 'general';
 const normalizeTags = (tags) => String(tags || '')
   .split(',')
@@ -207,6 +209,21 @@ export const forumService = {
     await deleteDoc(doc(db, 'forumThreads', threadId));
   },
 
+
+  async translateContent({ threadId, postId = '', field, targetLanguage }) {
+    if (!auth.currentUser) {
+      throw new Error('Sign in before translating forum content.');
+    }
+
+    const language = normalizeLanguageCode(targetLanguage);
+    if (!threadId || !field || !language || language === 'en') {
+      return null;
+    }
+
+    const translateForumContent = httpsCallable(functions, 'translateForumContent');
+    const result = await translateForumContent({ threadId, postId, field, targetLanguage: language });
+    return result.data?.translatedText || null;
+  },
   async reportThread(threadId, reason = '') {
     const author = await buildAuthor();
     if (!threadId) return;

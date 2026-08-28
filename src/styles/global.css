@@ -11049,3 +11049,47 @@ html body iframe.goog-te-menu-frame {
     width: 100% !important;
   }
 }
+
+/* Keep forum post text formatting stable after Google Translate injects inline elements. */
+.forum-post p,
+.forum-post p font,
+.forum-post p span,
+.forum-post p strong,
+.forum-post p em {
+  color: #14394b !important;
+  font-family: inherit !important;
+  font-size: inherit !important;
+  font-style: inherit !important;
+  font-weight: 800 !important;
+  letter-spacing: 0 !important;
+  line-height: inherit !important;
+  text-align: inherit !important;
+  white-space: pre-wrap !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+.forum-post p font,
+.forum-post p span,
+.forum-post p strong,
+.forum-post p em {
+  display: inline !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  vertical-align: baseline !important;
+}
+
+.forum-post p br {
+  display: initial !important;
+}
+
+@media (max-width: 640px) {
+  .forum-post p,
+  .forum-post p font,
+  .forum-post p span,
+  .forum-post p strong,
+  .forum-post p em {
+    font-size: 0.78rem !important;
+    line-height: 1.42 !important;
+  }
+}

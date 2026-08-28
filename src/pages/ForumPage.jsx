@@ -17,6 +17,18 @@ const formatForumDate = (value) => {
 };
 
 const getInitial = (name) => String(name || 'P').trim().slice(0, 1).toUpperCase();
+const readCookie = (name) => document.cookie
+  .split('; ')
+  .find((cookie) => cookie.startsWith(`${name}=`))
+  ?.split('=')[1] || '';
+
+const readStoredLanguage = () => {
+  if (typeof window === 'undefined' || typeof document === 'undefined') return '';
+  const storedLanguage = String(window.localStorage.getItem('tiles-survive-language') || '').trim().toLowerCase();
+  if (storedLanguage) return storedLanguage;
+  const rawCookie = readCookie('googtrans');
+  return rawCookie ? decodeURIComponent(rawCookie).split('/').filter(Boolean).pop()?.toLowerCase() || '' : '';
+};
 
 const getAuthorLine = (item) => {
   const parts = [];
@@ -37,7 +49,7 @@ function AuthorBadge({ item }) {
   );
 }
 
-function ForumThreadRow({ thread, category, isActive, onOpen }) {
+function ForumThreadRow({ thread, category, isActive, onOpen, title }) {
   return (
     <button className={isActive ? 'forum-board-row is-active' : 'forum-board-row'} type="button" onClick={onOpen}>
       <span className="forum-board-icon"><MessageSquare size={18} /></span>
@@ -46,7 +58,7 @@ function ForumThreadRow({ thread, category, isActive, onOpen }) {
           {thread.pinned ? <Pin size={14} /> : null}
           {thread.locked ? <LockKeyhole size={14} /> : null}
           {thread.solved ? <CheckCircle2 size={14} /> : null}
-          <strong>{thread.title}</strong>
+          <strong translate="no">{title || thread.title}</strong>
         </span>
         <span className="forum-board-subline">
           <span>{category?.title || 'General'}</span>
@@ -79,6 +91,8 @@ export default function ForumPage() {
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const [forumActionsOpen, setForumActionsOpen] = useState(false);
+  const [forumLanguage, setForumLanguage] = useState(() => readStoredLanguage() || 'en');
+  const [translatedForumContent, setTranslatedForumContent] = useState({});
 
   useEffect(() => authService.subscribe(setUser), []);
   useEffect(() => subscribeToAdminUsers(setAdminUsers, (error) => setStatus(error.message || 'Could not load admin state.')), []);
@@ -86,6 +100,57 @@ export default function ForumPage() {
   useEffect(() => {
     setForumActionsOpen(false);
   }, [selectedThreadId, isCreating]);
+  useEffect(() => {
+    const syncForumLanguage = () => setForumLanguage(readStoredLanguage() || 'en');
+    syncForumLanguage();
+    window.addEventListener('tiles-survive-translation-change', syncForumLanguage);
+    const intervalId = window.setInterval(syncForumLanguage, 1200);
+    return () => {
+      window.removeEventListener('tiles-survive-translation-change', syncForumLanguage);
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user || !forumLanguage || forumLanguage === 'en') return undefined;
+    let isMounted = true;
+    const requests = [];
+
+    threads.slice(0, 24).forEach((thread) => {
+      const key = `thread:${thread.id}:title:${forumLanguage}`;
+      if (thread.id && thread.title && !thread.translations?.[forumLanguage]?.title && !translatedForumContent[key]) {
+        requests.push({ key, threadId: thread.id, field: 'title', fallback: thread.title });
+      }
+    });
+
+    posts.slice(0, 24).forEach((post) => {
+      const key = `post:${selectedThreadId}:${post.id}:body:${forumLanguage}`;
+      if (selectedThreadId && post.id && post.body && !post.translations?.[forumLanguage]?.body && !translatedForumContent[key]) {
+        requests.push({ key, threadId: selectedThreadId, postId: post.id, field: 'body', fallback: post.body });
+      }
+    });
+
+    requests.slice(0, 12).forEach((item) => {
+      forumService.translateContent({
+        threadId: item.threadId,
+        postId: item.postId || '',
+        field: item.field,
+        targetLanguage: forumLanguage,
+      })
+        .then((translatedText) => {
+          if (!isMounted || !translatedText) return;
+          setTranslatedForumContent((current) => ({ ...current, [item.key]: translatedText }));
+        })
+        .catch(() => {
+          if (!isMounted) return;
+          setTranslatedForumContent((current) => ({ ...current, [item.key]: item.fallback }));
+        });
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [forumLanguage, posts, selectedThreadId, threads, translatedForumContent, user]);
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId) || null;
   const isAdmin = forumService.canModerate(user, adminUsers);
@@ -137,6 +202,23 @@ export default function ForumPage() {
     ...counts,
     [thread.categoryId]: (counts[thread.categoryId] || 0) + 1,
   }), {}), [threads]);
+
+  
+  const getThreadTitle = (thread) => {
+    if (!thread) return '';
+    if (!forumLanguage || forumLanguage === 'en') return thread.title;
+    return thread.translations?.[forumLanguage]?.title
+      || translatedForumContent[`thread:${thread.id}:title:${forumLanguage}`]
+      || thread.title;
+  };
+
+  const getPostBody = (post) => {
+    if (!post) return '';
+    if (!forumLanguage || forumLanguage === 'en') return post.body;
+    return post.translations?.[forumLanguage]?.body
+      || translatedForumContent[`post:${selectedThreadId}:${post.id}:body:${forumLanguage}`]
+      || post.body;
+  };
 
   const handleCreateThread = async (event) => {
     event.preventDefault();
@@ -217,30 +299,33 @@ export default function ForumPage() {
   const openBoard = () => {
     setSelectedThreadId('');
     setIsCreating(false);
+    setForumActionsOpen(false);
   };
 
   return (
     <section className="page-shell page-top forum-page">
       <div className="forum-shell">
-        <div className="forum-board-tools">
-          <label className="forum-search" htmlFor="forum-search">
-            <Search size={18} />
-            <input id="forum-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search topics, tags, players..." />
-          </label>
-          <button className={selectedCategory === 'all' ? 'is-active' : ''} type="button" onClick={() => { setSelectedCategory('all'); openBoard(); }}>All <span>{threads.length}</span></button>
-          {forumCategories.map((category) => (
-            <button className={selectedCategory === category.id ? 'is-active' : ''} key={category.id} type="button" onClick={() => { setSelectedCategory(category.id); openBoard(); }}>
-              {category.title} <span>{categoryCounts[category.id] || 0}</span>
-            </button>
-          ))}
-          {user ? (
-            <button className="forum-primary-action" type="button" onClick={() => { setIsCreating(true); setSelectedThreadId(''); }}>
-              <Plus size={18} /> New topic
-            </button>
-          ) : (
-            <Link className="forum-primary-action" to="/login"><User size={18} /> Sign in</Link>
-          )}
-        </div>
+        {!isCreating && !selectedThread ? (
+          <div className="forum-board-tools">
+            <label className="forum-search" htmlFor="forum-search">
+              <Search size={18} />
+              <input id="forum-search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search topics, tags, players..." />
+            </label>
+            <button className={selectedCategory === 'all' ? 'is-active' : ''} type="button" onClick={() => { setSelectedCategory('all'); openBoard(); }}>All <span>{threads.length}</span></button>
+            {forumCategories.map((category) => (
+              <button className={selectedCategory === category.id ? 'is-active' : ''} key={category.id} type="button" onClick={() => { setSelectedCategory(category.id); openBoard(); }}>
+                {category.title} <span>{categoryCounts[category.id] || 0}</span>
+              </button>
+            ))}
+            {user ? (
+              <button className="forum-primary-action" type="button" onClick={() => { setForumActionsOpen(false); setIsCreating(true); setSelectedThreadId(''); }}>
+                <Plus size={18} /> New topic
+              </button>
+            ) : (
+              <Link className="forum-primary-action" to="/login"><User size={18} /> Sign in</Link>
+            )}
+          </div>
+        ) : null}
 
         {status ? <strong className="forum-status">{status}</strong> : null}
 
@@ -268,20 +353,21 @@ export default function ForumPage() {
                         category={category}
                         isActive={selectedThreadId === thread.id}
                         key={thread.id}
-                        onOpen={() => { setSelectedThreadId(thread.id); setIsCreating(false); }}
+                        onOpen={() => { setForumActionsOpen(false); setSelectedThreadId(thread.id); setIsCreating(false); }}
                         thread={thread}
+                        title={getThreadTitle(thread)}
                       />
                     )) : (
                       <div className="forum-board-empty">
                         <MessageSquare size={18} />
                         <span>No topics yet.</span>
-                        {user ? <button type="button" onClick={() => { setNewThread((current) => ({ ...current, categoryId: category.id })); setIsCreating(true); }}>Start one</button> : null}
+                        {user ? <button type="button" onClick={() => { setForumActionsOpen(false); setNewThread((current) => ({ ...current, categoryId: category.id })); setIsCreating(true); }}>Start one</button> : null}
                       </div>
                     )}
                   </div>
                   {latest ? (
                     <footer className="forum-category-footer">
-                      Latest: <strong>{latest.title}</strong> by <span translate="no">{latest.lastPostByName || latest.authorName || 'Player'}</span>
+                      Latest: <strong translate="no">{getThreadTitle(latest)}</strong> by <span translate="no">{latest.lastPostByName || latest.authorName || 'Player'}</span>
                     </footer>
                   ) : null}
                 </section>
@@ -317,7 +403,7 @@ export default function ForumPage() {
                   <button className="forum-back-action" type="button" onClick={openBoard}>Back to forum</button>
                   <div>
                     <p className="eyebrow">{forumCategories.find((item) => item.id === selectedThread.categoryId)?.title || 'General'}</p>
-                    <h2>{selectedThread.title}</h2>
+                    <h2 translate="no">{getThreadTitle(selectedThread)}</h2>
                     <AuthorBadge item={selectedThread} />
                   </div>
                   <div className="forum-topic-settings">
@@ -343,7 +429,7 @@ export default function ForumPage() {
                         <AuthorBadge item={post} />
                         <time>{formatForumDate(post.createdAt)}</time>
                       </header>
-                      <p>{post.body}</p>
+                      <p translate="no">{getPostBody(post)}</p>
                     </article>
                   )) : <p className="forum-empty">No posts loaded yet.</p>}
                 </div>
@@ -366,5 +452,11 @@ export default function ForumPage() {
     </section>
   );
 }
+
+
+
+
+
+
 
 

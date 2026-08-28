@@ -168,6 +168,7 @@ export function GoogleTranslate() {
   const wrapperRef = useRef(null);
   const appliedLanguageRef = useRef('');
   const repairTimeoutRef = useRef(null);
+  const internalSelectChangeRef = useRef(false);
 
   useEffect(() => {
     const initialFallbackTimeoutId = selectedLanguage && selectedLanguage !== 'en'
@@ -193,6 +194,26 @@ export function GoogleTranslate() {
       return didApply;
     };
 
+    const reapplySelectedLanguage = (languageOverride = '') => {
+      const select = wrapperRef.current?.querySelector('select.goog-te-combo');
+      const languageToApply = normalizeLanguageCode(languageOverride) || readStoredLanguage() || selectedLanguage;
+      if (!select || !languageToApply || languageToApply === 'en') {
+        return applySelectedLanguage(false, languageToApply);
+      }
+
+      setTranslationPending(true);
+      storeSelectedLanguage(languageToApply);
+      if (select.value !== languageToApply) {
+        applyLanguageToSelect(select, languageToApply, true);
+      } else {
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      appliedLanguageRef.current = languageToApply;
+      setSelectedLanguage((current) => (current === languageToApply ? current : languageToApply));
+      window.setTimeout(notifyTranslationChange, 450);
+      clearTranslationPendingSoon(2600, 700);
+      return true;
+    };
     const scheduleTranslationRepair = (delay = 350) => {
       window.clearTimeout(repairTimeoutRef.current);
       repairTimeoutRef.current = window.setTimeout(() => {
@@ -208,7 +229,7 @@ export function GoogleTranslate() {
 
         setTranslationPending(true);
         storeSelectedLanguage(storedLanguage);
-        applySelectedLanguage(true, storedLanguage);
+        reapplySelectedLanguage(storedLanguage);
         window.setTimeout(notifyTranslationChange, 600);
         clearTranslationPendingSoon(2200, 500);
       }, delay);
@@ -219,9 +240,11 @@ export function GoogleTranslate() {
       const intervalId = window.setInterval(() => {
         tries += 1;
         const storedLanguage = readStoredLanguage() || selectedLanguage;
-        const shouldDispatch = storedLanguage !== 'en' && appliedLanguageRef.current !== storedLanguage && tries === 4;
+        const shouldDispatch = storedLanguage !== 'en'
+          && (!hasGoogleTranslatedPage() || appliedLanguageRef.current !== storedLanguage)
+          && [2, 5, 9, 14].includes(tries);
         const didApply = applySelectedLanguage(shouldDispatch, storedLanguage);
-        if ((didApply && (storedLanguage === 'en' || tries >= 12)) || tries >= 24) {
+        if ((didApply && (storedLanguage === 'en' || (hasGoogleTranslatedPage() && tries >= 10))) || tries >= 28) {
           window.clearInterval(intervalId);
         }
       }, 250);
@@ -229,6 +252,18 @@ export function GoogleTranslate() {
       return intervalId;
     };
 
+    const handleApplyTranslationRequest = (event) => {
+      const requestedLanguage = normalizeLanguageCode(event.detail?.language) || readStoredLanguage() || selectedLanguage;
+      if (!requestedLanguage || requestedLanguage === 'en') {
+        setTranslationPending(false);
+        return;
+      }
+      setTranslationPending(true);
+      storeSelectedLanguage(requestedLanguage);
+      reapplySelectedLanguage(requestedLanguage);
+      window.setTimeout(() => reapplySelectedLanguage(requestedLanguage), 900);
+      clearTranslationPendingSoon(2800, 650);
+    };
     const attachChangeListener = () => {
       const select = wrapperRef.current?.querySelector('select.goog-te-combo');
       if (!select || select.dataset.tilesSurviveBound === 'true') {
@@ -237,9 +272,20 @@ export function GoogleTranslate() {
       }
 
       select.dataset.tilesSurviveBound = 'true';
-      applySelectedLanguage(false);
+      const storedLanguage = readStoredLanguage() || selectedLanguage;
+      if (storedLanguage !== 'en' && !hasGoogleTranslatedPage()) {
+        reapplySelectedLanguage(storedLanguage);
+      } else {
+        applySelectedLanguage(false, storedLanguage);
+      }
+      if (storedLanguage && storedLanguage !== 'en') {
+        scheduleTranslationRepair(500);
+      }
 
       select.addEventListener('change', () => {
+        if (internalSelectChangeRef.current) {
+          return;
+        }
         const nextLanguage = select.value || 'en';
         setTranslationPending(nextLanguage !== 'en');
         storeSelectedLanguage(nextLanguage);
@@ -274,6 +320,7 @@ export function GoogleTranslate() {
       scheduleTranslationRepair(700);
     };
 
+    window.addEventListener('tiles-survive-apply-translation', handleApplyTranslationRequest);
     if (window.google?.translate) {
       window.googleTranslateElementInit();
     } else if (!document.getElementById(scriptId)) {
@@ -306,6 +353,7 @@ export function GoogleTranslate() {
       if (initialFallbackTimeoutId) {
         window.clearTimeout(initialFallbackTimeoutId);
       }
+      window.removeEventListener('tiles-survive-apply-translation', handleApplyTranslationRequest);
       observer.disconnect();
       window.clearInterval(retryIntervalId);
       window.clearInterval(locationIntervalId);
