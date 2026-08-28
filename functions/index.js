@@ -230,6 +230,67 @@ exports.translateChatMessage = onCall({ region: 'us-central1', cors: allowedFunc
   return { translatedText: restoredText, targetLanguage };
 });
 
+exports.translateForumContent = onCall({ region: 'us-central1', cors: allowedFunctionOrigins }, async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError('unauthenticated', 'Sign in before translating forum content.');
+  }
+
+  const threadId = String(request.data?.threadId || '').trim();
+  const postId = String(request.data?.postId || '').trim();
+  const field = String(request.data?.field || '').trim();
+  const targetLanguage = normalizeLanguageCode(request.data?.targetLanguage);
+
+  if (!threadId || !targetLanguage || !['title', 'body'].includes(field)) {
+    throw new HttpsError('invalid-argument', 'Thread, field, and target language are required.');
+  }
+
+  const targetRef = postId
+    ? db.doc(`forumThreads/${threadId}/posts/${postId}`)
+    : db.doc(`forumThreads/${threadId}`);
+  const targetSnapshot = await targetRef.get();
+  if (!targetSnapshot.exists) {
+    throw new HttpsError('not-found', 'Forum content not found.');
+  }
+
+  const item = targetSnapshot.data() || {};
+  const originalText = String(item[field] || '').trim();
+  if (!originalText) {
+    return { translatedText: '', targetLanguage, field };
+  }
+
+  const cachedTranslation = item.translations?.[targetLanguage]?.[field];
+  if (cachedTranslation) {
+    return { translatedText: cachedTranslation, targetLanguage, field };
+  }
+
+  const { protectedText: mentionProtectedText, mentions } = protectMentions(originalText);
+  const protectedNameTerms = [
+    item.authorName,
+    item.lastPostByName,
+    item.authorUid,
+    item.authorServer ? `#${item.authorServer}` : '',
+    item.authorAllianceTag ? `[${item.authorAllianceTag}]` : '',
+    ...(Array.isArray(item.tags) ? item.tags.map((tag) => `#${tag}`) : []),
+  ];
+  const { protectedText, protectedTerms } = protectTerms(mentionProtectedText, protectedNameTerms);
+  const [translatedText] = await getTranslateClient().translate(protectedText, {
+    to: targetLanguage,
+    format: 'text',
+  });
+  const restoredText = restoreMentions(restoreTerms(translatedText, protectedTerms), mentions);
+
+  await targetRef.set({
+    translations: {
+      [targetLanguage]: {
+        [field]: restoredText,
+      },
+    },
+    translatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  }, { merge: true });
+
+  return { translatedText: restoredText, targetLanguage, field };
+});
 exports.createChatImageUpload = onCall({
   region: 'us-central1',
   cors: allowedFunctionOrigins,
